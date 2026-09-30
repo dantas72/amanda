@@ -45,13 +45,19 @@ jobs:
           "$AMANDAC_BIN" serve --package /tmp/exemplo.amanda --port 18080 &
           SRV=$!
           sleep 3
-          curl -fsS http://127.0.0.1:18080/v1/models
-          curl -fsS -X POST http://127.0.0.1:18080/v1/chat/completions \
+          curl -fsS --max-time 10 http://127.0.0.1:18080/v1/models
+          curl -fsS --max-time 10 -X POST http://127.0.0.1:18080/v1/chat/completions \
             -H 'Content-Type: application/json' \
             -d '{"model":"amanda","messages":[{"role":"user","content":"O que e entropia?"}]}'
-          curl -fsS -X POST http://127.0.0.1:18080/v1/decisions \
+          curl -fsS --max-time 10 -X POST http://127.0.0.1:18080/v1/decisions \
             -H 'Content-Type: application/json' \
             -d '{"pergunta":"Qual e a capital do Brasil?"}'
+          curl -fsS --max-time 10 -X POST http://127.0.0.1:18080/v1/embeddings \
+            -H 'Content-Type: application/json' \
+            -d @examples/smoke_embeddings.json | grep -o '"total_tokens":[0-9]*'
+          curl -fsS --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d @examples/smoke_stream.json | grep -q 'data: \[DONE\]'
           kill $SRV
 
       - name: Laya check (optional, never fails)

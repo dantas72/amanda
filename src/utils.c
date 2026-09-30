@@ -203,6 +203,10 @@ int buf_append(ByteBuf *b, const void *src, size_t n) {
     return 0;
 }
 
+int buf_append_cstr(ByteBuf *b, const char *s) {
+    return buf_append(b, s, s ? strlen(s) : 0);
+}
+
 int buf_append_u32(ByteBuf *b, uint32_t v) {
     unsigned char tmp[4];
     write_u32_le(tmp, v);

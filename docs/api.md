@@ -23,6 +23,31 @@ Resposta:
  "amanda":{"confianca":0.93,"pagina":1}}
 ```
 
+## POST /v1/chat/completions (streaming SSE)
+```json
+{"model":"amanda","stream":true,"messages":[{"role":"user","content":"O que é entropia?"}]}
+```
+Resposta `Content-Type: text/event-stream`:
+```
+data: {"id":"chatcmpl-amanda","object":"chat.completion.chunk","model":"amanda","choices":[{"index":0,"delta":{"role":"assistant","content":"... [p.1]"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-amanda","object":"chat.completion.chunk","model":"amanda","choices":[{"index":0,"delta":{"content":"... "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-amanda","object":"chat.completion.chunk","model":"amanda","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"amanda":{"confianca":0.993,"pagina":1}}
+
+data: [DONE]
+```
+
+## POST /v1/embeddings
+```json
+{"input": "entropia"}
+```
+(`input` aceita string ou array de strings.) Resposta:
+```json
+{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.0, ... 384 floats ...]}],
+ "model":"amanda","usage":{"prompt_tokens":1,"total_tokens":1}}
+```
+
 ## POST /v1/decisions
 ```json
 {"pergunta":"Qual é a capital do Brasil?"}

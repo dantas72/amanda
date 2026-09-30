@@ -21,6 +21,13 @@ powershell -NoProfile -Command "try { (Invoke-WebRequest -Uri 'http://127.0.0.1:
   exit /b 1
 )
 powershell -NoProfile -Command "$b = @{ model='amanda'; messages=@(@{ role='user'; content='O que e entropia?' }) } | ConvertTo-Json -Depth 4; (Invoke-WebRequest -Uri 'http://127.0.0.1:18080/v1/chat/completions' -Method POST -Body $b -ContentType 'application/json' -UseBasicParsing).Content"
+echo [4b/5] embeddings + sse...
+curl.exe -s --max-time 10 -X POST http://127.0.0.1:18080/v1/embeddings -H "Content-Type: application/json" -d "@examples\smoke_embeddings.json" -o "%TEMP%\amanda_emb.json"
+powershell -NoProfile -Command "$t = Get-Content $env:TEMP\amanda_emb.json -Raw; $n = ([regex]::Matches($t, '\d+\.\d+')).Count; if ($t.Contains('embedding') -and ($n -eq 384)) { Write-Host ('embeddings: OK floats=' + $n) } else { Write-Host ('embeddings: FALHA floats=' + $n); exit 1 }"
+if errorlevel 1 ( taskkill /F /IM amandac.exe >nul 2>nul & exit /b 1 )
+curl.exe -s --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions -H "Content-Type: application/json" -d "@examples\smoke_stream.json" -o "%TEMP%\amanda_sse.txt"
+powershell -NoProfile -Command "$t = Get-Content $env:TEMP\amanda_sse.txt -Raw; if (-not $t.Contains('data: [DONE]')) { Write-Host 'sse: SEM DONE'; exit 1 } else { Write-Host 'sse: OK' }"
+if errorlevel 1 ( taskkill /F /IM amandac.exe >nul 2>nul & exit /b 1 )
 taskkill /F /IM amandac.exe >nul 2>nul
 echo [5/5] laya (engine externo, opcional)...
 call "%~dp0check_laya.bat" || exit /b 1

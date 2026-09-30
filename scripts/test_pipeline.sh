@@ -15,9 +15,15 @@ $BIN serve --package /tmp/exemplo.amanda --port 18080 &
 SRV=$!
 sleep 2
 curl -fsS http://127.0.0.1:18080/v1/models
-curl -fsS -X POST http://127.0.0.1:18080/v1/chat/completions \
+curl -fsS --max-time 10 -X POST http://127.0.0.1:18080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"amanda","messages":[{"role":"user","content":"O que e entropia?"}]}'
+curl -fsS --max-time 10 -X POST http://127.0.0.1:18080/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d @examples/smoke_embeddings.json | grep -o '"total_tokens":[0-9]*'
+curl -fsS --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d @examples/smoke_stream.json | grep -q 'data: \[DONE\]'
 kill $SRV
 echo "[5/5] laya (engine externo, opcional)..."
 sh "$(dirname "$0")/check_laya.sh"

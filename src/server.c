@@ -87,6 +87,15 @@ static char *extract_prompt(const char *body) {
     return last;
 }
 
+static void send_all(sock_t fd, const char *data, size_t len) {
+    size_t sent = 0;
+    while (sent < len) {
+        int r = send(fd, data + sent, (int)(len - sent), 0);
+        if (r <= 0) break;
+        sent += (size_t)r;
+    }
+}
+
 static void send_json(sock_t fd, int code, const char *status, const char *json) {
     char head[512];
     int hl = snprintf(head, sizeof head,
@@ -94,8 +103,133 @@ static void send_json(sock_t fd, int code, const char *status, const char *json)
         "Content-Length: %llu\r\nConnection: close\r\n"
         "Access-Control-Allow-Origin: *\r\n\r\n",
         code, status, (unsigned long long)strlen(json));
-    send(fd, head, hl, 0);
-    send(fd, json, (int)strlen(json), 0);
+    send_all(fd, head, (size_t)hl);
+    send_all(fd, json, strlen(json));
+}
+
+/* "stream": true ? */
+static int json_find_bool(const char *body, const char *key) {
+    char pat[128];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(body, pat);
+    if (!p) return 0;
+    p = strchr(p + strlen(pat), ':');
+    if (!p) return 0;
+    p++;
+    while (*p && isspace((unsigned char)*p)) p++;
+    return (strncmp(p, "true", 4) == 0) ? 1 : 0;
+}
+
+/* extrai "input": "txt" | ["a","b"] para /v1/embeddings */
+static char **parse_inputs(const char *body, int *n_out) {
+    *n_out = 0;
+    const char *p = strstr(body, "\"input\"");
+    if (!p) return NULL;
+    p = strchr(p + 7, ':');
+    if (!p) return NULL;
+    p++;
+    while (*p && isspace((unsigned char)*p)) p++;
+    int cap = 4, n = 0;
+    char **out = (char **)xmalloc(sizeof(char *) * (size_t)cap);
+    if (*p == '[') {
+        p++;
+        while (*p && *p != ']') {
+            while (*p && *p != '"' && *p != ']') p++;
+            if (*p != '"') break;
+            p++;
+            ByteBuf b; buf_init(&b);
+            while (*p && *p != '"') {
+                if (*p == '\\' && p[1]) {
+                    char e = p[1];
+                    if (e == 'n') buf_append(&b, "\n", 1);
+                    else buf_append(&b, &e, 1);
+                    p += 2;
+                } else { buf_append(&b, p, 1); p++; }
+            }
+            if (*p == '"') p++;
+            buf_reserve(&b, 1); b.data[b.len] = '\0';
+            if (n >= cap) { cap *= 2; out = (char **)xrealloc(out, sizeof(char *) * (size_t)cap); }
+            out[n++] = (char *)b.data;
+        }
+    } else if (*p == '"') {
+        char *one = json_find_string(body, "input");
+        if (one) {
+            out[n++] = one;
+        }
+    }
+    if (n == 0) { free(out); return NULL; }
+    *n_out = n;
+    return out;
+}
+
+static void send_sse_chat(sock_t fd, const char *answer, float conf, int pg) {
+    const char *head =
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+        "Cache-Control: no-cache\r\nConnection: close\r\n"
+        "Access-Control-Allow-Origin: *\r\n\r\n";
+    send_all(fd, head, strlen(head));
+
+    /* fatia a resposta em blocos de ~6 palavras */
+    int nw = 0;
+    char **words = NULL;
+    {
+        /* tokenizacao simples por espacos preservando palavras */
+        int cap = 64;
+        words = (char **)xmalloc(sizeof(char *) * (size_t)cap);
+        const char *p = answer;
+        while (*p) {
+            while (*p && isspace((unsigned char)*p)) p++;
+            if (!*p) break;
+            const char *s = p;
+            while (*p && !isspace((unsigned char)*p)) p++;
+            if (nw >= cap) { cap *= 2; words = (char **)xrealloc(words, sizeof(char *) * (size_t)cap); }
+            words[nw++] = xstrndup(s, (size_t)(p - s));
+        }
+    }
+    int first = 1;
+    ByteBuf piece; buf_init(&piece);
+    for (int i = 0; i < nw; i++) {
+        if (piece.len) buf_append(&piece, " ", 1);
+        buf_append(&piece, words[i], strlen(words[i]));
+        int flush = ((i + 1) % 6 == 0) || (i == nw - 1);
+        if (!flush) continue;
+        buf_reserve(&piece, 1); piece.data[piece.len] = '\0';
+        char *esc = json_escape((char *)piece.data);
+        if (first) {
+            /* primeiro bloco carrega role + dica de citacao */
+            char pre[256];
+            snprintf(pre, sizeof pre, " [p.%d]", pg);
+            char *esc2 = json_escape(pre);
+            char *line = (char *)xmalloc(strlen(esc) + strlen(esc2) + 512);
+            snprintf(line, strlen(esc) + strlen(esc2) + 512,
+                "data: {\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion.chunk\",\"model\":\"amanda\","
+                "\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"%s%s\"},\"finish_reason\":null}]}\n\n",
+                esc, esc2);
+            send_all(fd, line, strlen(line));
+            free(line); free(esc2);
+            first = 0;
+        } else {
+            char *line = (char *)xmalloc(strlen(esc) + 320);
+            snprintf(line, strlen(esc) + 320,
+                "data: {\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion.chunk\",\"model\":\"amanda\","
+                "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s \"},\"finish_reason\":null}]}\n\n",
+                esc);
+            send_all(fd, line, strlen(line));
+            free(line);
+        }
+        free(esc);
+        piece.len = 0;
+    }
+    for (int i = 0; i < nw; i++) free(words[i]);
+    free(words);
+    buf_free(&piece);
+    char tail[512];
+    snprintf(tail, sizeof tail,
+        "data: {\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion.chunk\",\"model\":\"amanda\","
+        "\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],"
+        "\"amanda\":{\"confianca\":%.3f,\"pagina\":%d}}\n\ndata: [DONE]\n\n",
+        conf, pg);
+    send_all(fd, tail, strlen(tail));
 }
 
 static int handle_conn(sock_t fd, AmandaPackage *pkg) {
@@ -171,18 +305,23 @@ static int handle_conn(sock_t fd, AmandaPackage *pkg) {
             float conf = 0; int pg = 0;
             char *ans = montar_resposta_chat(prompt, pkg->chunks, pkg->num_chunks,
                                              pkg->embeddings, &cfg, &conf, &pg);
-            char *esc = json_escape(ans);
-            char *js = (char *)xmalloc(strlen(esc) + 1024);
-            snprintf(js, strlen(esc) + 1024,
-                "{\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion\",\"model\":\"amanda\","
-                "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"%s\"},\"finish_reason\":\"stop\"}],"
-                "\"amanda\":{\"confianca\":%.3f,\"pagina\":%d}}",
-                esc, conf, pg);
-            free(esc);
+            int stream = json_find_bool(bstr, "stream");
+            if (stream) {
+                send_sse_chat(fd, ans, conf, pg);
+            } else {
+                char *esc = json_escape(ans);
+                char *js = (char *)xmalloc(strlen(esc) + 1024);
+                snprintf(js, strlen(esc) + 1024,
+                    "{\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion\",\"model\":\"amanda\","
+                    "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"%s\"},\"finish_reason\":\"stop\"}],"
+                    "\"amanda\":{\"confianca\":%.3f,\"pagina\":%d}}",
+                    esc, conf, pg);
+                free(esc);
+                send_json(fd, 200, "OK", js);
+                free(js);
+            }
             free(ans);
             free(prompt);
-            send_json(fd, 200, "OK", js);
-            free(js);
         }
     } else if (strcmp(method, "POST") == 0 && strncmp(path, "/v1/decisions", 14) == 0) {
         char *prompt = extract_prompt(bstr);
@@ -204,6 +343,45 @@ static int handle_conn(sock_t fd, AmandaPackage *pkg) {
             free(prompt);
             send_json(fd, 200, "OK", js);
             free(js);
+        }
+    } else if (strcmp(method, "POST") == 0 && strncmp(path, "/v1/embeddings", 14) == 0) {
+        int ni = 0;
+        char **inputs = parse_inputs(bstr, &ni);
+        if (!inputs || ni == 0) {
+            send_json(fd, 400, "Bad Request", "{\"error\":\"campo input ausente (string ou array de strings)\"}");
+        } else {
+            ByteBuf js; buf_init(&js);
+            buf_append_cstr(&js, "{\"object\":\"list\",\"data\":[");
+            long total_toks = 0;
+            for (int i = 0; i < ni; i++) {
+                Embeddings *e = embed_query(inputs[i]);
+                int nt = 0;
+                char **tk = tokenizar(inputs[i], &nt);
+                total_toks += nt;
+                liberar_tokens(tk, nt);
+                if (i) buf_append(&js, ",", 1);
+                char tmp[256];
+                snprintf(tmp, sizeof tmp,
+                    "{\"object\":\"embedding\",\"index\":%d,\"embedding\":[", i);
+                buf_append(&js, tmp, strlen(tmp));
+                for (int k = 0; k < e->dimensao; k++) {
+                    char num[32];
+                    snprintf(num, sizeof num, "%s%.6f", k ? "," : "", e->vetores[k]);
+                    buf_append(&js, num, strlen(num));
+                }
+                buf_append(&js, "]}", 2);
+                liberar_embeddings(e);
+            }
+            char tail[256];
+            snprintf(tail, sizeof tail,
+                "],\"model\":\"amanda\",\"usage\":{\"prompt_tokens\":%ld,\"total_tokens\":%ld}}",
+                total_toks, total_toks);
+            buf_append(&js, tail, strlen(tail));
+            buf_reserve(&js, 1); js.data[js.len] = '\0';
+            send_json(fd, 200, "OK", (char *)js.data);
+            buf_free(&js);
+            for (int i = 0; i < ni; i++) free(inputs[i]);
+            free(inputs);
         }
     } else {
         send_json(fd, 404, "Not Found", "{\"error\":\"rota nao encontrada\"}");
@@ -248,7 +426,7 @@ int server_run(const ServerConfig *cfg) {
     printf("amandac serve: http://%s:%d (pacote: %d chunks)\n",
            cfg->host ? cfg->host : "127.0.0.1", cfg->port,
            cfg->pkg ? cfg->pkg->num_chunks : 0);
-    printf("rotas: GET /v1/models | GET /v1/amanda/info | POST /v1/chat/completions | POST /v1/decisions\n");
+    printf("rotas: GET /v1/models | GET /v1/amanda/info | POST /v1/chat/completions (+stream) | POST /v1/decisions | POST /v1/embeddings\n");
     fflush(stdout);
 
     for (;;) {

@@ -40,6 +40,7 @@ void buf_init(ByteBuf *b);
 void buf_free(ByteBuf *b);
 int buf_reserve(ByteBuf *b, size_t extra);
 int buf_append(ByteBuf *b, const void *src, size_t n);
+int buf_append_cstr(ByteBuf *b, const char *s);
 int buf_append_u32(ByteBuf *b, uint32_t v);
 int buf_append_i32(ByteBuf *b, int32_t v);
 int buf_append_f32(ByteBuf *b, float v);
