@@ -2,7 +2,7 @@
 
 ![Amanda](amandaLogo.png)
 
-Repositório: `https://github.com/Spoiledpay/amanda`
+Repositório: `https://github.com/dantas72/amanda`
 
 Transforma `PDF / TXT / CSV / JSON` em artefato `.amanda` servido
 localmente com API compatível OpenAI — pronto para ser consumido
