@@ -31,13 +31,26 @@ Windows, Linux e Mac. A etapa Laya é opcional (SKIP sem o engine).
 amandac compile --input examples/exemplo.txt --output exemplo.amanda
 amandac inspect --package exemplo.amanda --stats
 amandac ask --package exemplo.amanda "O que é entropia?"
+amandac eval --package exemplo.amanda --sample 0.1
 amandac serve --package exemplo.amanda --port 8080
 amandac version
 ```
 
+## Métricas (Fase 5)
+
+```sh
+amandac eval --package exemplo.amanda --sample 0.1
+amandac eval --package exemplo.amanda --sample 1.0 --json
+```
+
+Valida uma amostra das perguntas tipadas e relata fidelidade (% página
+correta), calibração (confiança × acurácia, gap + ECE), latência (meta
+≤500ms) e recusa (in-scope + probes fora-escopo). Detalhes em
+`docs/eval.md`.
+
 ## Testes
 ```bat
-gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\packager.c -o build\amanda_tests.exe && build\amanda_tests.exe
+gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\packager.c src\eval.c -o build\amanda_tests.exe && build\amanda_tests.exe
 scripts\test_pipeline.bat
 ```
 

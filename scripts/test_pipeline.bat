@@ -29,6 +29,8 @@ curl.exe -s --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions 
 powershell -NoProfile -Command "$t = Get-Content $env:TEMP\amanda_sse.txt -Raw; if (-not $t.Contains('data: [DONE]')) { Write-Host 'sse: SEM DONE'; exit 1 } else { Write-Host 'sse: OK' }"
 if errorlevel 1 ( taskkill /F /IM amandac.exe >nul 2>nul & exit /b 1 )
 taskkill /F /IM amandac.exe >nul 2>nul
-echo [5/5] laya (engine externo, opcional)...
+echo [5/6] eval (Fase 5 - calibracao)...
+amandac.exe eval --package build\exemplo.amanda --sample 1.0 || exit /b 1
+echo [6/6] laya (engine externo, opcional)...
 call "%~dp0check_laya.bat" || exit /b 1
 echo [OK] pipeline de integracao passou.

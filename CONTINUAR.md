@@ -1,28 +1,39 @@
-# Amanda — Continuar amanhã (2026-10-01)
+# Amanda — Continuar (atualizado 2026-09-30, Fase 5 pronta)
 
-Último commit: `88d975d` (Fase 4) em `https://github.com/dantas72/amanda`, branch `main`.
+Último commit após este lote: Fase 5 (`amandac eval`) em `https://github.com/dantas72/amanda`, branch `main`.
 
 ## Estado atual (tudo verde)
-- Fases `[x]`: 1 (núcleo `amandac.exe`), 2 (CMake + CI win/linux/mac), 4 (SSE + `/v1/embeddings`).
-- Testes: 17/17 unit (`build/amanda_tests.exe`), pipeline `scripts\test_pipeline.bat` OK.
-- CI: `.github/workflows/ci.yml` roda no push (ver aba Actions no GitHub).
+- Fases `[x]`: 1 (núcleo `amandac.exe`), 2 (CMake + CI win/linux/mac),
+  4 (SSE + `/v1/embeddings`), **5 (`eval` + métricas)**.
+- Testes: **25/25 unit** (`build/amanda_tests.exe`, +8 do `eval`),
+  pipeline `scripts\test_pipeline.bat` OK (agora com etapa `eval`).
+- CI: `.github/workflows/ci.yml` com etapa `Eval (Fase 5)`; Laya check segue opcional.
+  (Nesta máquina o engine Laya respondeu em `:8420` — OK, não SKIP.)
+- `version.bin`: **1.0.2** (`amandac 1.0.2`).
+- Livros em `pdf/` compilados para `build/*.amanda` (gitignore, não commitar):
+  - `CVM-livro_top_valores_mobiliarios_br_5ed.pdf` → `build/cvm_valores_mobiliarios.amanda` (90 perguntas)
+  - `Livro-IBRI-CVM.pdf` → `build/ibri_cvm.amanda` (21 perguntas)
+  - `livro_top_direito.pdf` → `build/top_direito.amanda` (159 perguntas)
+  - `top-analise-de-investimentos-2ed.pdf` → `build/top_analise_investimentos.amanda` (75 perguntas)
+- `amandac eval --sample 0.1`: latência PASS em todos (0–5 ms); fidelidade
+  50–100% conforme o livro; ver tabela e achados em `docs/eval.md`.
 
-## Faltam
-- [ ] **Fase 5** — calibração + métricas: validar em 10% das perguntas geradas,
-      relatório de fidelidade (% cita página correta), calibração
-      (confiança × acurácia), latência (<500ms) e recusa. Ideia: novo
-      subcomando `amandac eval --package X --sample 0.1`.
+## Falta
 - [ ] **Fase 3 (deferida)** — integração Laya via HTTP. Pré-requisito: Laya
       instalado com engine em `127.0.0.1:8420`; então `scripts\check_laya.bat`
       passa de SKIP → OK. Ver `docs/laya.md`.
+- [ ] **Backlog pós-Fase 5** (ver `docs/eval.md`): recalibrar confiança do
+      `decision_engine` (overconfiança ~0.99), recalibrar limiar de recusa
+      (probes 0/3), ampliar extração de PDFs complexos + cobertura no `eval`.
 
 ## Como retomar
 ```bat
 cd C:\Projetos\Projeto_IA\Amanda
 git pull
 build.bat                              :: incrementa version.bin e gera amandac.exe
-gcc -O2 -std=c11 -Iinclude tests/test_all.c src/amanda.c src/utils.c src/pdf_extractor.c src/chunker.c src/embedder.c src/question_gen.c src/decision_engine.c src/packager.c -o build/amanda_tests.exe && build/amanda_tests.exe
-scripts\test_pipeline.bat              :: pipeline completa (etapa Laya = SKIP sem engine)
+gcc -O2 -std=c11 -Iinclude tests/test_all.c src/amanda.c src/utils.c src/pdf_extractor.c src/chunker.c src/embedder.c src/question_gen.c src/decision_engine.c src/packager.c src/eval.c -o build/amanda_tests.exe && build/amanda_tests.exe
+scripts\test_pipeline.bat              :: pipeline completa (eval + Laya opcional)
+amandac.exe eval --package build\cvm_valores_mobiliarios.amanda --sample 0.1
 ```
 
 ## Decisões registradas (não reabrir sem motivo)
@@ -40,3 +51,6 @@ scripts\test_pipeline.bat              :: pipeline completa (etapa Laya = SKIP s
      preferir `buf_append_cstr`.
 4. Commits como `Spoiledpay` (config local). Push usa Credential Manager do Windows.
 5. `build/`, `*.exe`, `*.amanda`, `models/*.gguf` estão no `.gitignore` (não commitar).
+6. **Fase 5 não recalibrou o motor**: `eval` mede e reporta (gap/ECE, recusa,
+   latência); mudar centro/inclinação/limiar do `decision_engine` ficou de
+   backlog deliberado para não alterar comportamento sem curva dedicada.

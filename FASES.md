@@ -4,4 +4,4 @@
 - [x] Fase 2 — CMake multiplataforma + CI: `CMakeLists.txt` validado localmente (Ninja+GCC, `ctest` OK), workflow `.github/workflows/ci.yml` (Windows/Linux/Mac: build + unit + integração + serve smoke + Laya SKIP), código endurecido p/ POSIX (sem warnings novos).
 - [ ] Fase 3 — (DEFERIDA: só após Fases 1–2 do Projeto.md) Integração Laya via HTTP, sem GGUF: `amandac serve` como backend OpenAI-compatible do Laya (LiteLLM) + backend opcional `laya-http` no decision_engine com fallback local. Pré-requisito: Laya instalado (engine em `127.0.0.1:8420`). Até lá, a etapa 5/5 da pipeline (`scripts\check_laya.bat`) retorna SKIP sem falhar. Ver `docs/laya.md`.
 - [x] Fase 4 — Servidor SSE + `/v1/embeddings`: `stream:true` retorna `text/event-stream` com deltas + `data: [DONE]`; `POST /v1/embeddings` (string ou array, 384 floats, formato OpenAI); fixtures `examples/smoke_*.json`; smoke no CI e na pipeline `.bat/.sh`.
-- [ ] Fase 5 — Calibração com validação em 10% das perguntas + métricas (fidelidade/calibração/latência/recusa).
+- [x] Fase 5 — Calibração com validação em 10% das perguntas + métricas (fidelidade/calibração/latência/recusa).

@@ -7,6 +7,7 @@
 #include "decision_engine.h"
 #include "packager.h"
 #include "server.h"
+#include "eval.h"
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +21,7 @@ static void print_uso(void) {
     printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1]\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N]\n");
+    printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json]\n");
     printf("  amandac version\n");
     printf("Entradas aceitas: .pdf .txt .csv .json\n");
 }
@@ -229,12 +231,46 @@ static int cmd_inspect(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_eval(int argc, char **argv) {
+    const char *pack = flag_val(argc, argv, "--package", NULL);
+    double sample = atof(flag_val(argc, argv, "--sample", "0.1"));
+    unsigned int seed = (unsigned int)atoi(flag_val(argc, argv, "--seed", "42"));
+    int topk = atoi(flag_val(argc, argv, "--top-k", "3"));
+    int asjson = flag_bool(argc, argv, "--json");
+    if (!pack) { fprintf(stderr, "eval: --package obrigatorio\n"); return 2; }
+    char *erro = NULL;
+    AmandaPackage *pkg = carregar_amanda(pack, &erro);
+    if (!pkg) {
+        fprintf(stderr, "eval: %s\n", erro ? erro : "?");
+        free(erro);
+        return 1;
+    }
+    EvalConfig cfg = {sample, seed, topk > 0 ? topk : 3};
+    EvalReport rep;
+    if (eval_run(pkg, &cfg, &rep, &erro) != 0) {
+        fprintf(stderr, "eval: %s\n", erro ? erro : "?");
+        free(erro);
+        liberar_package(pkg);
+        return 1;
+    }
+    if (asjson) {
+        char *j = eval_to_json(&rep, pack);
+        printf("%s\n", j);
+        free(j);
+    } else {
+        eval_print_text(&rep, pack);
+    }
+    liberar_package(pkg);
+    return 0;
+}
+
 int cli_main(int argc, char **argv) {
     if (argc < 2) { print_uso(); return 2; }
     if (strcmp(argv[1], "compile") == 0) return cmd_compile(argc - 1, argv + 1);
     if (strcmp(argv[1], "serve") == 0) return cmd_serve(argc - 1, argv + 1);
     if (strcmp(argv[1], "ask") == 0) return cmd_ask(argc - 1, argv + 1);
     if (strcmp(argv[1], "inspect") == 0) return cmd_inspect(argc - 1, argv + 1);
+    if (strcmp(argv[1], "eval") == 0) return cmd_eval(argc - 1, argv + 1);
     if (strcmp(argv[1], "version") == 0 || strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0) {
         printf("amandac %s (formato .amanda v%d)\n", amanda_version(), AMANDA_FORMAT_VERSION);
         return 0;

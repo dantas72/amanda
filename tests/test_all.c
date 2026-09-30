@@ -9,6 +9,7 @@
 #include "question_gen.h"
 #include "decision_engine.h"
 #include "packager.h"
+#include "eval.h"
 #include "utils.h"
 
 static int passes = 0, fails = 0;
@@ -156,6 +157,48 @@ static void test_extractor(void) {
     remove(p);
 }
 
+static void test_eval(void) {
+    printf("[eval]\n");
+    DocumentoExtraido doc;
+    memset(&doc, 0, sizeof doc);
+    BlocoTexto bs[2];
+    bs[0].texto = "A capital do Brasil e Brasilia, inaugurada em 1960. O congresso fica em Brasilia.";
+    bs[0].pagina = 1; bs[0].x = bs[0].y = bs[0].largura = bs[0].altura = 0;
+    bs[1].texto = "A fotossintese produz glicose nas plantas verdes com clorofila.";
+    bs[1].pagina = 2; bs[1].x = bs[1].y = bs[1].largura = bs[1].altura = 0;
+    doc.blocos = bs; doc.num_blocos = 2; doc.num_paginas = 2;
+    int nc = 0;
+    Chunk *ch = dividir_em_chunks(&doc, 180, 0, &nc);
+    CHECK(ch && nc >= 1, "chunks para eval");
+    Embeddings *e = gerar_embeddings(ch, nc);
+    QuestionGenConfig qc = {1, 1, 2};
+    int nq = 0;
+    PerguntaTipada *qs = gerar_perguntas(ch, 2, &qc, &nq);
+    CHECK(qs && nq > 0, "perguntas para eval");
+    AmandaPackage pkg;
+    memset(&pkg, 0, sizeof pkg);
+    pkg.chunks = ch; pkg.num_chunks = nc;
+    pkg.embeddings = e;
+    pkg.perguntas = qs; pkg.num_perguntas = nq;
+    EvalConfig cfg = {1.0, 42u, 2};
+    EvalReport r;
+    char *erro = NULL;
+    int rc = eval_run(&pkg, &cfg, &r, &erro);
+    CHECK(rc == 0, "eval_run ok");
+    if (rc == 0) {
+        CHECK(r.amostradas == nq, "amostra 100% cobre todas");
+        CHECK(r.fidelidade >= 0.0 && r.fidelidade <= 1.0, "fidelidade em [0,1]");
+        CHECK(r.lat_media_ms <= 500.0, "latencia media <=500ms");
+        CHECK(r.n_probes == 3, "3 probes fora-escopo");
+        char *j = eval_to_json(&r, "mem");
+        CHECK(j && strstr(j, "fidelidade") != NULL, "json contem metricas");
+        free(j);
+    } else { printf("  erro: %s\n", erro ? erro : "?"); free(erro); }
+    liberar_chunks(ch, nc);
+    liberar_embeddings(e);
+    liberar_perguntas(qs, nq);
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -164,6 +207,7 @@ int main(void) {
     test_decision();
     test_packager();
     test_extractor();
+    test_eval();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

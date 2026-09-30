@@ -39,6 +39,11 @@ jobs:
           "$BIN" ask --package /tmp/exemplo.amanda "O que e entropia?"
           echo "AMANDAC_BIN=$BIN" >> "$GITHUB_ENV"
 
+      - name: Eval (Fase 5 - calibracao)
+        shell: bash
+        run: |
+          "$AMANDAC_BIN" eval --package /tmp/exemplo.amanda --sample 1.0
+
       - name: Serve smoke (OpenAI-compatible)
         shell: bash
         run: |
