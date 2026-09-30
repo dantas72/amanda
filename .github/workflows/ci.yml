@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CMake)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure -C Release
+
+      - name: Integration (compile/inspect/ask)
+        shell: bash
+        run: |
+          BIN=build/amandac
+          [ -x "$BIN" ] || BIN=build/Release/amandac
+          [ -x "$BIN" ] || BIN=build/amandac.exe
+          [ -x "$BIN" ] || BIN=build/Release/amandac.exe
+          echo "BIN=$BIN"
+          "$BIN" version
+          "$BIN" compile --input examples/exemplo.txt --output /tmp/exemplo.amanda --title "Exemplo Amanda"
+          "$BIN" inspect --package /tmp/exemplo.amanda --stats
+          "$BIN" ask --package /tmp/exemplo.amanda "O que e entropia?"
+          echo "AMANDAC_BIN=$BIN" >> "$GITHUB_ENV"
+
+      - name: Serve smoke (OpenAI-compatible)
+        shell: bash
+        run: |
+          "$AMANDAC_BIN" serve --package /tmp/exemplo.amanda --port 18080 &
+          SRV=$!
+          sleep 3
+          curl -fsS http://127.0.0.1:18080/v1/models
+          curl -fsS -X POST http://127.0.0.1:18080/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"amanda","messages":[{"role":"user","content":"O que e entropia?"}]}'
+          curl -fsS -X POST http://127.0.0.1:18080/v1/decisions \
+            -H 'Content-Type: application/json' \
+            -d '{"pergunta":"Qual e a capital do Brasil?"}'
+          kill $SRV
+
+      - name: Laya check (optional, never fails)
+        shell: bash
+        run: sh scripts/check_laya.sh || true

@@ -1,5 +1,7 @@
 # Amanda — Compilador de Conhecimento em C
 
+[![CI](https://github.com/dantas72/amanda/actions/workflows/ci.yml/badge.svg)](https://github.com/dantas72/amanda/actions)
+
 ![Amanda](amandaLogo.png)
 
 Repositório: `https://github.com/dantas72/amanda`
@@ -18,6 +20,11 @@ Gera `amandac.exe` e incrementa `version.bin` (começa em `1.0.1`).
 ```sh
 cmake -S . -B build && cmake --build build
 ```
+
+## CI
+GitHub Actions (`.github/workflows/ci.yml`): build + testes unitários
+(`ctest`) + integração (`compile`/`inspect`/`ask`/serve smoke) em
+Windows, Linux e Mac. A etapa Laya é opcional (SKIP sem o engine).
 
 ## Uso
 ```sh

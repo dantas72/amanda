@@ -121,7 +121,7 @@ static void test_packager(void) {
     pkg.embeddings = e;
     pkg.perguntas = qs; pkg.num_perguntas = nq;
     char *erro = NULL;
-    const char *tmp = "build/test_roundtrip.amanda";
+    const char *tmp = "amanda_test_roundtrip.tmp";
     int rc = empacotar_amanda(&pkg, tmp, &erro);
     CHECK(rc == 0, "empacota .amanda");
     AmandaPackage *back = carregar_amanda(tmp, &erro);
@@ -141,7 +141,7 @@ static void test_packager(void) {
 
 static void test_extractor(void) {
     printf("[extractor]\n");
-    const char *p = "build/test_input.txt";
+    const char *p = "amanda_test_input.tmp";
     FILE *f = fopen(p, "w");
     CHECK(f != NULL, "cria txt temporario");
     if (f) {

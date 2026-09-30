@@ -198,44 +198,6 @@ static unsigned br_bits(BitReader *br, int n) {
     return v;
 }
 
-typedef struct { int *counts; int *symbols; int maxbits; int n; } Huff;
-
-static int huff_build(Huff *h, const int *lens, int n, int *tmp_counts, int *tmp_syms) {
-    int maxb = 0;
-    for (int i = 0; i < n; i++) if (lens[i] > maxb) maxb = lens[i];
-    h->maxbits = maxb; h->n = n;
-    h->counts = tmp_counts; h->symbols = tmp_syms;
-    for (int i = 0; i <= maxb; i++) h->counts[i] = 0;
-    for (int i = 0; i < n; i++) if (lens[i]) h->counts[lens[i]]++;
-    int offs[16] = {0};
-    int code = 0;
-    for (int b = 1; b <= maxb; b++) {
-        code = (code + h->counts[b-1]) << 1;
-        offs[b] = code;
-    }
-    int pos[16] = {0};
-    /* organiza simbolos por comprimento */
-    int idx = 0;
-    static int tmp[512];
-    for (int b = 1; b <= maxb; b++) {
-        for (int i = 0; i < n; i++) if (lens[i] == b) tmp[idx++] = i;
-    }
-    /* atribui codigos */
-    int p = 0;
-    for (int b = 1; b <= maxb; b++) {
-        int c = offs[b];
-        for (int k = 0; k < h->counts[b]; k++) {
-            /* armazena (codigo << 8 | bits)? simplifica: tabela de decodificacao por busca */
-            h->symbols[p++] = (c << 8) | b; /* placeholder */
-            /* precisamos mapear simbolo->codigo; guardamos separado */
-            c++;
-        }
-    }
-    /* reconstrói lista ordenada simbolo->(code,len) em arrays estaticos externos */
-    (void)tmp;
-    return 0;
-}
-
 /* Implementacao inflate direta com tabelas canonicas sem abstracao pesada */
 typedef struct {
     int code;

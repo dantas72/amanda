@@ -14,6 +14,7 @@ vamos usar o gcc.exe para a implementação da ferramenta,
 amandac.exe 
 
 lembrar de criar o projeto no github:
+https://github.com/dantas72/amanda
 https://github.com/Spoiledpay/amanda
 
 **INSTRUÇÕES PARA ESTA SESSÃO DE PROGRAMAÇÃO**
