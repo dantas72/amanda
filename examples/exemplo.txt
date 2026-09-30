@@ -1,0 +1,23 @@
+A Entropia e os Sistemas Complexos
+====================================
+
+A entropia e uma medida da desordem de um sistema fisico. Na termodinamica,
+a segunda lei afirma que a entropia de um sistema isolado tende a aumentar
+com o tempo. Isso significa que os processos naturais evoluem de estados
+ordenados para estados mais desordenados.
+
+Os microestados de um sistema determinam sua entropia. Quanto maior o numero
+de microestados compativeis com um macroestado, maior a entropia. Boltzmann
+relacionou a entropia ao logaritmo do numero de microestados pela famosa
+equacao S = k log W, onde k e a constante de Boltzmann.
+
+A energia livre de Gibbs combina entalpia e entropia para prever a
+espontaneidade de reacoes quimicas. Processos exotermicos liberam calor,
+enquanto processos endotermicos absorvem calor do ambiente.
+
+A fotossintese ocorre nos cloroplastos das plantas verdes. A clorofila
+absorve a luz solar e converte agua e dioxido de carbono em glicose e
+oxigenio. Este processo e endotermico e fundamental para a vida na Terra.
+
+A capital do Brasil e Brasilia, inaugurada em 1960. O pais possui uma
+grande diversidade de biomas, incluindo a Amazonia e o Cerrado.

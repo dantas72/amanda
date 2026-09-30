@@ -1,0 +1,11 @@
+{
+  "enableAllProjectMcpServers": false,
+  "enabledPlugins": [],
+  "env": {},
+  "model": "mimo-v2.5",
+  "permissions": {
+    "allow": [],
+    "ask": [],
+    "deny": []
+  }
+}

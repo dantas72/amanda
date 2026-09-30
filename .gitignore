@@ -1,0 +1,14 @@
+# Jimi Code
+.Jimi/settings.local.json
+data/sessions/*
+data/backups/*
+# binarios gerados (compile local com build.bat)
+*.exe
+*.o
+# artefatos gerados pela pipeline
+*.amanda
+build/
+# modelos grandes (Fase 3 / Laya: ver docs/laya.md e models/README.md)
+models/*.gguf
+models/*.onnx
+models/*.bin

@@ -1,0 +1,22 @@
+projeto: "Compilador Amanda"
+versao: "0.1.0"
+pdf:
+  caminho: "examples/exemplo.txt"
+  idioma: "pt-BR"
+chunking:
+  tamanho_max: 180
+  sobreposicao: 30
+embeddings:
+  modelo: "hash-tfidf-384"
+  dimensao: 384
+question_gen:
+  max_choice: 3
+  max_score: 2
+  max_noul: 5
+decision_engine:
+  modelo: "retrieval-hibrido"
+  limiar_confianca: 0.7
+  limiar_recusa: 0.3
+servidor:
+  porta: 8080
+  host: "127.0.0.1"

@@ -1,0 +1,4 @@
+#ifndef AMANDA_VERSION_GEN_H
+#define AMANDA_VERSION_GEN_H
+#define AMANDA_VERSION_GEN "1.0.1"
+#endif
