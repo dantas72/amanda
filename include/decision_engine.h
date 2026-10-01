@@ -28,6 +28,11 @@ typedef struct {
     int backend;
     char laya_url[256];
     int laya_timeout_ms;
+    /* Fase 6: calibracao do sigmoide conf = S((score-center)*slope).
+       Padrao (zeros): center=0.12, slope=12.0. Para customizar passe
+       slope > 0 (center 0 = 0.12 apenas quando slope tambem e 0). */
+    float conf_center;
+    float conf_slope;
 } DecisionConfig;
 
 #define DECISION_BACKEND_LOCAL 0

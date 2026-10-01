@@ -25,10 +25,12 @@ curl -fsS --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d @examples/smoke_stream.json | grep -q 'data: \[DONE\]'
 kill $SRV
-echo "[5/6] eval (Fase 5 - calibracao)..."
+echo "[5/7] eval (Fase 5 - calibracao)..."
 $BIN eval --package /tmp/exemplo.amanda --sample 1.0
-echo "[6/7] laya (engine externo, opcional)..."
+echo "[6/8] calibrate (Fase 6)..."
+$BIN calibrate --package /tmp/exemplo.amanda --sample 1.0
+echo "[7/8] laya (engine externo, opcional)..."
 sh "$(dirname "$0")/check_laya.sh"
-echo "[7/7] laya-llm (Fase 3, backend opcional)..."
+echo "[7/8] laya-llm (Fase 3, backend opcional)..."
 sh "$(dirname "$0")/check_laya_llm.sh"
 echo "[OK] pipeline de integracao passou."

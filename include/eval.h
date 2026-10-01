@@ -9,6 +9,10 @@ typedef struct {
     int top_k;
     int backend;
     char laya_url[256];
+    float conf_center;
+    float conf_slope;
+    float limiar_recusa;
+    int tem_limiar;
 } EvalConfig;
 
 typedef struct {

@@ -29,7 +29,6 @@ Saída texto humana por padrão; `--json` emite o relatório máquina
 | top_analise_investimentos | 75 | 62.5% (5/8) | 0.99 | 0.368 | 0.0 ms PASS | 0/3 |
 
 ## Achados (não bloqueiam a Fase 5, viram backlog)
-
 1. **Overconfiança**: confiança satura em ~0.99 mesmo quando a fidelidade é
    60–70%. O sigmoide do `decision_engine` (centro 0.12, inclinação 12)
    precisa de recalibração (ex.: Platt/temperatura ou ajuste do centro).
@@ -40,3 +39,31 @@ Saída texto humana por padrão; `--json` emite o relatório máquina
    12 chunks. PDFs com streams complexos/imagens geram pouco texto
    extraível. Backlog: ampliar operadores PDF suportados e reportar
    cobertura de extração no `eval`.
+
+## Fase 6 — Recalibração (fecha os itens 1 e 2)
+
+`amandac calibrate --package X --sample 0.5` coleta (score, rótulo)
+para amostra in-scope (positivas) + 3 probes (negativas) e busca em
+grade `center × slope × limiar` (12×14×17 = 2856 combinações) que
+maximize a acurácia balanceada (TPR+TNR)/2, com desempate pelo menor
+gap. O motor aceita os parâmetros
+(`ask`/`eval --conf-center F --conf-slope F --limiar-recusa F`;
+zeros = padrão histórico 0.12/12.0/0.30).
+
+Resultados (`amandac 1.0.7`):
+
+| pacote | atual (bal) | sugerido | bal | TPR/TNR | gap |
+|---|---|---|---|---|---|
+| cvm_valores_mobiliarios | 0.12/12/0.30 (0.500) | 0.100/22/0.90 | 1.000 | 1.00/1.00 | 0.009 |
+| top_direito | 0.12/12/0.30 (0.500) | 0.050/30/0.90 | 1.000 | 1.00/1.00 | 0.005 |
+| top_analise_investimentos | 0.12/12/0.30 (0.500) | 0.050/16/0.90 | 1.000 | 1.00/1.00 | 0.009 |
+| ibri_cvm | 0.12/12/0.30 (0.500) | 0.050/30/0.90 | 1.000 | 1.00/1.00 | 0.017 |
+
+Fechamento do loop (CVM, `eval --sample 0.2` com params sugeridos):
+recusa fora-escopo **0/3 → 3/3 (100%)**, recusa in-scope 0/18,
+fidelidade 88.9%, latência 2.6 ms PASS.
+
+Nota honesta: o ótimo cai em limiar alto (0.90) com slope íngreme —
+separa perfeitamente estes pacotes, mas perguntas in-scope limítrofes
+futuras podem recusar mais. O `calibrate` imprime TPR/TNR para auditar;
+rode `eval` com os parâmetros antes de adotar.

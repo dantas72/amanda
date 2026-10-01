@@ -8,6 +8,7 @@
 #include "packager.h"
 #include "server.h"
 #include "eval.h"
+#include "calibra.h"
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,8 +23,10 @@ static void print_uso(void) {
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N]\n");
     printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
+    printf("  amandac calibrate --package <arq.amanda> [--sample 0.5] [--seed 42] [--json]\n");
     printf("  amandac version\n");
     printf("Entradas aceitas: .pdf .txt .csv .json\n");
+    printf("Calibracao (Fase 6): --conf-center F --conf-slope F --limiar-recusa F (ask, eval)\n");
 }
 
 static const char *flag_val(int argc, char **argv, const char *flag, const char *def) {
@@ -48,9 +51,18 @@ static void fill_backend(DecisionConfig *cfg, int argc, char **argv) {
     cfg->backend = parse_backend(flag_val(argc, argv, "--backend", "local"));
     const char *url = flag_val(argc, argv, "--laya-url", NULL);
     if (url) {
-        strncpy(cfg->laya_url, url, sizeof cfg->laya_url - 1);
-        cfg->laya_url[sizeof cfg->laya_url - 1] = '\0';
+        snprintf(cfg->laya_url, sizeof cfg->laya_url, "%s", url);
     }
+}
+
+/* Fase 6: aplica parametros de calibracao (zeros = padrao do motor). */
+static void fill_calib(DecisionConfig *cfg, int argc, char **argv) {
+    const char *cc = flag_val(argc, argv, "--conf-center", NULL);
+    const char *cs = flag_val(argc, argv, "--conf-slope", NULL);
+    const char *lr = flag_val(argc, argv, "--limiar-recusa", NULL);
+    if (cc) cfg->conf_center = (float)atof(cc);
+    if (cs) cfg->conf_slope = (float)atof(cs);
+    if (lr) cfg->limiar_recusa = (float)atof(lr);
 }
 
 static void data_hoje(char *buf, size_t n) {
@@ -157,7 +169,9 @@ static int cmd_ask(int argc, char **argv) {
         for (int i = 1; i < argc; i++) {
             if (strcmp(argv[i], "--package") == 0 || strcmp(argv[i], "--top-k") == 0 ||
                 strcmp(argv[i], "--question") == 0 || strcmp(argv[i], "--pergunta") == 0 ||
-                strcmp(argv[i], "--backend") == 0 || strcmp(argv[i], "--laya-url") == 0) {
+                strcmp(argv[i], "--backend") == 0 || strcmp(argv[i], "--laya-url") == 0 ||
+                strcmp(argv[i], "--conf-center") == 0 || strcmp(argv[i], "--conf-slope") == 0 ||
+                strcmp(argv[i], "--limiar-recusa") == 0) {
                 i++; /* pula valor da flag */
                 continue;
             }
@@ -192,6 +206,7 @@ static int cmd_ask(int argc, char **argv) {
     cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f;
     cfg.top_k = topk > 0 ? topk : 3;
     fill_backend(&cfg, argc, argv);
+    fill_calib(&cfg, argc, argv);
     int via_laya = 0;
     Decisao *d = executar_decisao_hibrida(q, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg, &via_laya);
     if (asjson) {
@@ -274,10 +289,14 @@ static int cmd_eval(int argc, char **argv) {
     cfg.backend = parse_backend(flag_val(argc, argv, "--backend", "local"));
     {
         const char *url = flag_val(argc, argv, "--laya-url", NULL);
-        if (url) {
-            strncpy(cfg.laya_url, url, sizeof cfg.laya_url - 1);
-            cfg.laya_url[sizeof cfg.laya_url - 1] = '\0';
-        }
+        if (url)
+            snprintf(cfg.laya_url, sizeof cfg.laya_url, "%s", url);
+        const char *cc = flag_val(argc, argv, "--conf-center", NULL);
+        const char *cs = flag_val(argc, argv, "--conf-slope", NULL);
+        const char *lr = flag_val(argc, argv, "--limiar-recusa", NULL);
+        if (cc) cfg.conf_center = (float)atof(cc);
+        if (cs) cfg.conf_slope = (float)atof(cs);
+        if (lr) { cfg.limiar_recusa = (float)atof(lr); cfg.tem_limiar = 1; }
     }
     EvalReport rep;
     if (eval_run(pkg, &cfg, &rep, &erro) != 0) {
@@ -297,6 +316,40 @@ static int cmd_eval(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_calibrate(int argc, char **argv) {
+    const char *pack = flag_val(argc, argv, "--package", NULL);
+    double sample = atof(flag_val(argc, argv, "--sample", "0.5"));
+    unsigned int seed = (unsigned int)atoi(flag_val(argc, argv, "--seed", "42"));
+    int asjson = flag_bool(argc, argv, "--json");
+    if (!pack) { fprintf(stderr, "calibrate: --package obrigatorio\n"); return 2; }
+    char *erro = NULL;
+    AmandaPackage *pkg = carregar_amanda(pack, &erro);
+    if (!pkg) {
+        fprintf(stderr, "calibrate: %s\n", erro ? erro : "?");
+        free(erro);
+        return 1;
+    }
+    CalibraConfig cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.sample = sample; cfg.seed = seed;
+    CalibraReport rep;
+    if (calibra_run(pkg, &cfg, &rep, &erro) != 0) {
+        fprintf(stderr, "calibrate: %s\n", erro ? erro : "?");
+        free(erro);
+        liberar_package(pkg);
+        return 1;
+    }
+    if (asjson) {
+        char *j = calibra_to_json(&rep, pack);
+        printf("%s\n", j);
+        free(j);
+    } else {
+        calibra_print_text(&rep, pack);
+    }
+    liberar_package(pkg);
+    return 0;
+}
+
 int cli_main(int argc, char **argv) {
     if (argc < 2) { print_uso(); return 2; }
     if (strcmp(argv[1], "compile") == 0) return cmd_compile(argc - 1, argv + 1);
@@ -304,6 +357,7 @@ int cli_main(int argc, char **argv) {
     if (strcmp(argv[1], "ask") == 0) return cmd_ask(argc - 1, argv + 1);
     if (strcmp(argv[1], "inspect") == 0) return cmd_inspect(argc - 1, argv + 1);
     if (strcmp(argv[1], "eval") == 0) return cmd_eval(argc - 1, argv + 1);
+    if (strcmp(argv[1], "calibrate") == 0) return cmd_calibrate(argc - 1, argv + 1);
     if (strcmp(argv[1], "version") == 0 || strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0) {
         printf("amandac %s (formato .amanda v%d)\n", amanda_version(), AMANDA_FORMAT_VERSION);
         return 0;

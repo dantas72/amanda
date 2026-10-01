@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "amanda.h"
 #include "pdf_extractor.h"
@@ -11,6 +12,7 @@
 #include "laya_backend.h"
 #include "packager.h"
 #include "eval.h"
+#include "calibra.h"
 #include "utils.h"
 
 static int passes = 0, fails = 0;
@@ -254,6 +256,65 @@ static void test_hibrida_fallback(void) {
     liberar_chunks(ch, nc);
 }
 
+static void test_calibra(void) {
+    printf("[calibra]\n");
+    DocumentoExtraido doc;
+    memset(&doc, 0, sizeof doc);
+    BlocoTexto bs[2];
+    bs[0].texto = "A capital do Brasil e Brasilia, inaugurada em 1960. O congresso fica em Brasilia.";
+    bs[0].pagina = 1; bs[0].x = bs[0].y = bs[0].largura = bs[0].altura = 0;
+    bs[1].texto = "A fotossintese produz glicose nas plantas verdes com clorofila.";
+    bs[1].pagina = 2; bs[1].x = bs[1].y = bs[1].largura = bs[1].altura = 0;
+    doc.blocos = bs; doc.num_blocos = 2; doc.num_paginas = 2;
+    int nc = 0;
+    Chunk *ch = dividir_em_chunks(&doc, 180, 0, &nc);
+    Embeddings *e = gerar_embeddings(ch, nc);
+    QuestionGenConfig qc;
+    memset(&qc, 0, sizeof qc);
+    qc.max_choice = 1; qc.max_score = 1; qc.max_noul = 2;
+    int nq = 0;
+    PerguntaTipada *qs = gerar_perguntas(ch, 2, &qc, &nq);
+    CHECK(qs && nq > 0, "perguntas para calibra");
+    AmandaPackage pkg;
+    memset(&pkg, 0, sizeof pkg);
+    pkg.chunks = ch; pkg.num_chunks = nc;
+    pkg.embeddings = e;
+    pkg.perguntas = qs; pkg.num_perguntas = nq;
+    CalibraConfig cc;
+    memset(&cc, 0, sizeof cc);
+    cc.sample = 1.0; cc.seed = 42u;
+    CalibraReport r;
+    char *erro = NULL;
+    int rc = calibra_run(&pkg, &cc, &r, &erro);
+    CHECK(rc == 0, "calibra_run ok");
+    if (rc == 0) {
+        CHECK(r.n_pos == nq && r.n_neg == 3, "pos=todas, neg=3 probes");
+        CHECK(r.sug_bal >= r.cur_bal - 1e-9, "sugerido nao piora bal");
+        CHECK(r.sug_center >= 0.05f - 1e-4f && r.sug_center <= 0.60f + 1e-3f, "center na grade");
+        CHECK(r.sug_slope >= 4.0f - 1e-4f && r.sug_slope <= 30.0f + 1e-3f, "slope na grade");
+        CHECK(r.sug_limiar >= 0.10f - 1e-4f && r.sug_limiar <= 0.90f + 1e-3f, "limiar na grade");
+        char *j = calibra_to_json(&r, "mem");
+        CHECK(j && strstr(j, "sugerido") != NULL, "json contem sugerido");
+        free(j);
+    } else { printf("  erro: %s\n", erro ? erro : "?"); free(erro); }
+    /* motor parametrizavel: slope custom muda a confianca; zeros = padrao */
+    DecisionConfig d0, d1;
+    memset(&d0, 0, sizeof d0);
+    d0.limiar_recusa = 0.0f; d0.top_k = 2;
+    memset(&d1, 0, sizeof d1);
+    d1.limiar_recusa = 0.0f; d1.top_k = 2;
+    d1.conf_center = 0.30f; d1.conf_slope = 6.0f;
+    Decisao *a = executar_decisao("Qual e a capital do Brasil?", ch, nc, e, &d0);
+    Decisao *b = executar_decisao("Qual e a capital do Brasil?", ch, nc, e, &d1);
+    CHECK(a && b && fabsf(a->confianca - b->confianca) > 1e-4f, "slope custom muda confianca");
+    Decisao *c = executar_decisao("Qual e a capital do Brasil?", ch, nc, e, NULL);
+    CHECK(c && fabsf(a->confianca - c->confianca) < 1e-6f, "zeros = padrao historico");
+    liberar_decisao(a); liberar_decisao(b); liberar_decisao(c);
+    liberar_chunks(ch, nc);
+    liberar_embeddings(e);
+    liberar_perguntas(qs, nq);
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -265,6 +326,7 @@ int main(void) {
     test_eval();
     test_laya_backend();
     test_hibrida_fallback();
+    test_calibra();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

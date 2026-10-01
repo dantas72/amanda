@@ -59,9 +59,21 @@ Ollama, ex. `nimble`) e combina com o grounding local
 (página/citação/confiança). Qualquer falha cai para o motor local
 automaticamente. Detalhes em `docs/laya.md`.
 
+## Recalibração (Fase 6)
+
+```sh
+amandac calibrate --package exemplo.amanda --sample 0.5
+amandac ask --package exemplo.amanda "Pergunta" --conf-center 0.100 --conf-slope 22.0 --limiar-recusa 0.90
+amandac eval --package exemplo.amanda --conf-center 0.100 --conf-slope 22.0 --limiar-recusa 0.90
+```
+
+O `calibrate` sugere centro/inclinação/limiar que maximizam a acurácia
+balanceada (aceitar in-scope, recusar probes). Zeros = padrão histórico.
+Detalhes e tabela por livro em `docs/eval.md`.
+
 ## Testes
 ```bat
-gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\eval.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
+gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\eval.c src\calibra.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
 scripts\test_pipeline.bat
 ```
 

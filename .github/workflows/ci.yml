@@ -44,6 +44,11 @@ jobs:
         run: |
           "$AMANDAC_BIN" eval --package /tmp/exemplo.amanda --sample 1.0
 
+      - name: Calibrate (Fase 6)
+        shell: bash
+        run: |
+          "$AMANDAC_BIN" calibrate --package /tmp/exemplo.amanda --sample 1.0
+
       - name: Serve smoke (OpenAI-compatible)
         shell: bash
         run: |

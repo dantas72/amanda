@@ -15,7 +15,7 @@ file(WRITE "${CMAKE_SOURCE_DIR}/include/version_gen.h"
 add_executable(amandac
   src/amanda.c src/utils.c src/pdf_extractor.c src/chunker.c
   src/embedder.c src/question_gen.c src/decision_engine.c src/laya_backend.c
-  src/packager.c src/server.c src/eval.c src/cli.c src/main.c)
+  src/packager.c src/server.c src/eval.c src/calibra.c src/cli.c src/main.c)
 target_include_directories(amandac PRIVATE include)
 
 if(WIN32)
@@ -29,7 +29,7 @@ endif()
 enable_testing()
 add_executable(amanda_tests tests/test_all.c
   src/amanda.c src/utils.c src/pdf_extractor.c src/chunker.c
-  src/embedder.c src/question_gen.c src/decision_engine.c src/laya_backend.c src/packager.c src/eval.c)
+  src/embedder.c src/question_gen.c src/decision_engine.c src/laya_backend.c src/packager.c src/eval.c src/calibra.c)
 target_include_directories(amanda_tests PRIVATE include)
 if(WIN32)
   target_link_libraries(amanda_tests ws2_32)

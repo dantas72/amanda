@@ -65,6 +65,9 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
     dc.backend = c.backend;
     if (c.laya_url[0])
         snprintf(dc.laya_url, sizeof dc.laya_url, "%s", c.laya_url);
+    dc.conf_center = c.conf_center;
+    dc.conf_slope = c.conf_slope;
+    if (c.tem_limiar) dc.limiar_recusa = c.limiar_recusa;
 
     double soma_conf = 0.0;
     double soma_lat = 0.0;

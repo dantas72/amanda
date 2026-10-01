@@ -74,10 +74,16 @@ Decisao *executar_decisao(const char *pergunta, Chunk *chunks, int num_chunks,
         return d;
     }
     float best = rk[0].score;
-    /* calibracao: mapeia score hibrido [0,1] para confianca.
-       Scores tipicos: pergunta no escopo ~0.15-0.50, fora ~0.0-0.08.
-       Centro 0.12 com inclinacao 12 separa bem os dois regimes. */
-    float conf = sigmoid((best - 0.12f) * 12.0f);
+    /* Fase 6: sigmoide parametrizavel. Zeros = padrao historico
+       (centro 0.12, inclinacao 12: separa escopo ~0.15-0.50 de
+       fora ~0.0-0.08). */
+    float center = c.conf_center;
+    float slope = c.conf_slope;
+    if (slope <= 0.0f) {
+        slope = 12.0f;
+        if (center == 0.0f) center = 0.12f;
+    }
+    float conf = sigmoid((best - center) * slope);
     d->confianca = conf;
     d->probabilidade = conf;
     int idx = rk[0].indice_chunk;
