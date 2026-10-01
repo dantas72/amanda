@@ -11,7 +11,7 @@ $BIN inspect --package /tmp/exemplo.amanda --stats
 echo "[3/4] ask..."
 $BIN ask --package /tmp/exemplo.amanda "O que e entropia?"
 echo "[4/4] serve (smoke)..."
-$BIN serve --package /tmp/exemplo.amanda --port 18080 &
+$BIN serve --package /tmp/exemplo.amanda --port 18080 --conf-center 0.12 --conf-slope 12 --limiar-recusa 0.3 &
 SRV=$!
 sleep 2
 curl -fsS http://127.0.0.1:18080/v1/models

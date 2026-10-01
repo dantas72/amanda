@@ -2,6 +2,11 @@
 
 Base: `http://127.0.0.1:8080`
 
+Flags de calibração do `serve` (Fase 7.2):
+`--conf-center F --conf-slope F --limiar-recusa F`
+(zeros = padrão 0.12/12.0/0.30; banner mostra os valores ativos).
+Sugeridos pelo `amandac calibrate`. Backend sempre local no `serve`.
+
 ## GET /v1/models
 ```json
 {"object":"list","data":[{"id":"amanda","object":"model","owned_by":"amanda","permission":[]}]}

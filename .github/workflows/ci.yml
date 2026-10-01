@@ -52,7 +52,7 @@ jobs:
       - name: Serve smoke (OpenAI-compatible)
         shell: bash
         run: |
-          "$AMANDAC_BIN" serve --package /tmp/exemplo.amanda --port 18080 &
+          "$AMANDAC_BIN" serve --package /tmp/exemplo.amanda --port 18080 --conf-center 0.12 --conf-slope 12 --limiar-recusa 0.3 &
           SRV=$!
           sleep 3
           curl -fsS --max-time 10 http://127.0.0.1:18080/v1/models

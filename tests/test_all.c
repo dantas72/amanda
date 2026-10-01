@@ -316,6 +316,41 @@ static void test_calibra(void) {
     liberar_perguntas(qs, nq);
 }
 
+static void test_serve_calib(void) {
+    printf("[serve_calib]\n");
+    DocumentoExtraido doc;
+    memset(&doc, 0, sizeof doc);
+    BlocoTexto bs[1];
+    bs[0].texto = "A capital do Brasil e Brasilia, inaugurada em 1960.";
+    bs[0].pagina = 1; bs[0].x = bs[0].y = bs[0].largura = bs[0].altura = 0;
+    doc.blocos = bs; doc.num_blocos = 1; doc.num_paginas = 1;
+    int nc = 0;
+    Chunk *ch = dividir_em_chunks(&doc, 180, 0, &nc);
+    Embeddings *e = gerar_embeddings(ch, nc);
+    DecisionConfig base;
+    memset(&base, 0, sizeof base);
+    base.limiar_confianca = 0.7f; base.limiar_recusa = 0.3f; base.top_k = 3;
+    float c0 = 0; int pg0 = 0;
+    char *r0 = montar_resposta_chat("Qual e a capital do Brasil?", ch, nc, e, &base, &c0, &pg0);
+    CHECK(r0 && c0 > 0.9f, "serve default: confianca alta in-scope");
+    free(r0);
+    /* limiar 1.0 recusa tudo; slope custom muda a confianca */
+    DecisionConfig bloqueia = base;
+    bloqueia.limiar_recusa = 1.0f;
+    float c1 = 0; int pg1 = 0;
+    char *r1 = montar_resposta_chat("Qual e a capital do Brasil?", ch, nc, e, &bloqueia, &c1, &pg1);
+    CHECK(r1 && strstr(r1, "Nao encontrei") != NULL, "serve limiar 1.0 recusa");
+    free(r1);
+    DecisionConfig custom = base;
+    custom.conf_center = 0.30f; custom.conf_slope = 6.0f;
+    float c2 = 0; int pg2 = 0;
+    char *r2 = montar_resposta_chat("Qual e a capital do Brasil?", ch, nc, e, &custom, &c2, &pg2);
+    CHECK(r2 && fabsf(c2 - c0) > 1e-4f, "serve slope custom muda confianca");
+    free(r2);
+    liberar_embeddings(e);
+    liberar_chunks(ch, nc);
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -328,6 +363,7 @@ int main(void) {
     test_laya_backend();
     test_hibrida_fallback();
     test_calibra();
+    test_serve_calib();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

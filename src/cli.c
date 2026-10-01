@@ -19,7 +19,7 @@ static void print_uso(void) {
     printf("amandac %s - Compilador de Conhecimento Amanda\n", amanda_version());
     printf("Uso:\n");
     printf("  amandac compile --input <arq> --output <arq.amanda> [--title T] [--author A] [--lang pt-BR] [--chunk-words N] [--overlap N]\n");
-    printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1]\n");
+    printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N]\n");
     printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
@@ -150,7 +150,17 @@ static int cmd_serve(int argc, char **argv) {
         free(erro);
         return 1;
     }
-    ServerConfig cfg = {host, port, pkg, NULL};
+    ServerConfig cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.host = host; cfg.port = port; cfg.pkg = pkg; cfg.stop_flag = NULL;
+    {
+        const char *cc = flag_val(argc, argv, "--conf-center", NULL);
+        const char *cs = flag_val(argc, argv, "--conf-slope", NULL);
+        const char *lr = flag_val(argc, argv, "--limiar-recusa", NULL);
+        if (cc) cfg.conf_center = (float)atof(cc);
+        if (cs) cfg.conf_slope = (float)atof(cs);
+        if (lr) { cfg.limiar_recusa = (float)atof(lr); cfg.tem_limiar = 1; }
+    }
     int rc = server_run(&cfg);
     liberar_package(pkg);
     return rc;

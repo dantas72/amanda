@@ -6,6 +6,10 @@
 
 Repositório: `https://github.com/dantas72/amanda`
 
+© 2026 LabsObjects — criado e implementado por Fernando Dantas, Brasil.
+Licença MIT: `LICENSE` (PT-BR), `LICENSE.en` (US English),
+`LICENSE.ru` (RU), `LICENSE.zh` (CN).
+
 Transforma `PDF / TXT / CSV / JSON` em artefato `.amanda` servido
 localmente com API compatível OpenAI — pronto para ser consumido
 por CLIs, OpenCode ou pelo Laya (ver `docs/laya.md`).
@@ -71,6 +75,24 @@ amandac eval --package exemplo.amanda --conf-center 0.100 --conf-slope 22.0 --li
 O `calibrate` sugere centro/inclinação/limiar que maximizam a acurácia
 balanceada (aceitar in-scope, recusar probes). Zeros = padrão histórico.
 Detalhes e tabela por livro em `docs/eval.md`.
+
+## Serve calibrado (Fase 7.2)
+
+```sh
+amandac serve --package exemplo.amanda --port 8080 --conf-center 0.100 --conf-slope 22.0 --limiar-recusa 0.90
+```
+
+Aplica a calibração do `calibrate`/`eval` ao servidor (banner mostra os
+parâmetros ativos). Backend segue sempre local no `serve`: com servidor
+single-thread, uma inferência LLM por request travaria o serviço
+(reavaliar na Fase 7.5, com threads). Ver `docs/api.md`.
+
+## Status das fases
+
+Fases 1–6 + 7.1 prontas (`FASES.md`): núcleo, CMake+CI, Laya-HTTP,
+SSE+embeddings, `eval`, `calibrate`, docs/higiene. Em andamento:
+Fase 7 (7.2 serve calibrado, 7.3 config+templates, 7.4 PDF+,
+7.5 servidor robusto, 7.6 release).
 
 ## Testes
 ```bat

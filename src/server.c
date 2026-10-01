@@ -232,7 +232,18 @@ static void send_sse_chat(sock_t fd, const char *answer, float conf, int pg) {
     send_all(fd, tail, strlen(tail));
 }
 
-static int handle_conn(sock_t fd, AmandaPackage *pkg) {
+static void base_decision_cfg(const ServerConfig *sc, DecisionConfig *dc) {
+    memset(dc, 0, sizeof *dc);
+    dc->limiar_confianca = 0.7f;
+    dc->limiar_recusa = (sc && sc->tem_limiar) ? sc->limiar_recusa : 0.3f;
+    dc->top_k = 3;
+    if (sc) {
+        dc->conf_center = sc->conf_center;
+        dc->conf_slope = sc->conf_slope;
+    }
+}
+
+static int handle_conn(sock_t fd, AmandaPackage *pkg, const DecisionConfig *base) {
     char buf[65536];
     int got = 0;
     /* le cabecalho */
@@ -301,9 +312,7 @@ static int handle_conn(sock_t fd, AmandaPackage *pkg) {
             free(prompt);
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo messages[].content ausente\"}");
         } else {
-            DecisionConfig cfg;
-            memset(&cfg, 0, sizeof cfg);
-            cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f; cfg.top_k = 3;
+            DecisionConfig cfg = *base;
             float conf = 0; int pg = 0;
             char *ans = montar_resposta_chat(prompt, pkg->chunks, pkg->num_chunks,
                                              pkg->embeddings, &cfg, &conf, &pg);
@@ -331,9 +340,7 @@ static int handle_conn(sock_t fd, AmandaPackage *pkg) {
             free(prompt);
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo pergunta ausente\"}");
         } else {
-            DecisionConfig cfg;
-            memset(&cfg, 0, sizeof cfg);
-            cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f; cfg.top_k = 3;
+            DecisionConfig cfg = *base;
             Decisao *d = executar_decisao(prompt, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg);
             char *esc = json_escape(d->resposta);
             char *escc = json_escape(d->citacao ? d->citacao : "");
@@ -431,6 +438,12 @@ int server_run(const ServerConfig *cfg) {
            cfg->host ? cfg->host : "127.0.0.1", cfg->port,
            cfg->pkg ? cfg->pkg->num_chunks : 0);
     printf("rotas: GET /v1/models | GET /v1/amanda/info | POST /v1/chat/completions (+stream) | POST /v1/decisions | POST /v1/embeddings\n");
+    DecisionConfig base;
+    base_decision_cfg(cfg, &base);
+    printf("calibracao: center=%.3f slope=%.1f limiar_recusa=%.2f%s\n",
+           base.conf_slope > 0.0f ? base.conf_center : 0.12f,
+           base.conf_slope > 0.0f ? base.conf_slope : 12.0f,
+           base.limiar_recusa, " (backend local)");
     fflush(stdout);
 
     for (;;) {
@@ -439,7 +452,7 @@ int server_run(const ServerConfig *cfg) {
         socklen_t cl = sizeof cli;
         sock_t fd = accept(srv, (struct sockaddr *)&cli, &cl);
         if (fd == SOCK_INVALID) continue;
-        handle_conn(fd, cfg->pkg);
+        handle_conn(fd, cfg->pkg, &base);
         sock_close(fd);
     }
     sock_close(srv);

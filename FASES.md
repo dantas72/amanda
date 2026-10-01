@@ -8,7 +8,7 @@
 - [x] Fase 6 — Recalibração: `amandac calibrate` (grade centro/inclinação/limiar sobre amostra + probes, maximiza acurácia balanceada), motor com sigmoide parametrizável (`--conf-center/--conf-slope/--limiar-recusa` em `ask`/`eval`, zeros = padrão histórico), etapa na pipeline + CI.
 - [ ] Fase 7 — Endurecimento e pendências (microfases independentes):
   - [x] 7.1 Docs e higiene: `Projeto.md`/`Jimi.md`/`models/README.md` sincronizados (locais), warning `has_choice` eliminado, `version_bump` no CMake (paridade com `build.bat`).
-  - [ ] 7.2 Serve calibrado: flags de calibração/backend no `serve`.
+  - [x] 7.2 Serve calibrado: flags `--conf-center/--conf-slope/--limiar-recusa` no `serve` (backend segue local; LLM-por-request volta na 7.5 com threads).
   - [ ] 7.3 Config + templates vivos: loader `config.yaml`, `question_gen` via `.tpl`.
   - [ ] 7.4 Extração PDF+: operadores, tolerância, cobertura no `eval`.
   - [ ] 7.5 Servidor robusto: threads, CORS, auth, limites, `POST /v1/eval`.
