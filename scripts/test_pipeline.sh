@@ -27,6 +27,8 @@ curl -fsS --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions \
 kill $SRV
 echo "[5/6] eval (Fase 5 - calibracao)..."
 $BIN eval --package /tmp/exemplo.amanda --sample 1.0
-echo "[6/6] laya (engine externo, opcional)..."
+echo "[6/7] laya (engine externo, opcional)..."
 sh "$(dirname "$0")/check_laya.sh"
+echo "[7/7] laya-llm (Fase 3, backend opcional)..."
+sh "$(dirname "$0")/check_laya_llm.sh"
 echo "[OK] pipeline de integracao passou."

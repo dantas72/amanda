@@ -8,6 +8,7 @@
 #include "embedder.h"
 #include "question_gen.h"
 #include "decision_engine.h"
+#include "laya_backend.h"
 #include "packager.h"
 #include "eval.h"
 #include "utils.h"
@@ -92,7 +93,9 @@ static void test_decision(void) {
     Chunk *ch = dividir_em_chunks(&doc, 180, 0, &nc);
     CHECK(ch && nc >= 1, "chunks para decisao");
     Embeddings *e = gerar_embeddings(ch, nc);
-    DecisionConfig cfg = {0.7f, 0.3f, 2};
+    DecisionConfig cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f; cfg.top_k = 2;
     Decisao *d = executar_decisao("Qual e a capital do Brasil?", ch, nc, e, &cfg);
     CHECK(d && d->resposta && strstr(d->resposta, "Brasilia") != NULL, "resposta cita Brasilia");
     liberar_decisao(d);
@@ -180,7 +183,9 @@ static void test_eval(void) {
     pkg.chunks = ch; pkg.num_chunks = nc;
     pkg.embeddings = e;
     pkg.perguntas = qs; pkg.num_perguntas = nq;
-    EvalConfig cfg = {1.0, 42u, 2};
+    EvalConfig cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.sample = 1.0; cfg.seed = 42u; cfg.top_k = 2;
     EvalReport r;
     char *erro = NULL;
     int rc = eval_run(&pkg, &cfg, &r, &erro);
@@ -199,6 +204,56 @@ static void test_eval(void) {
     liberar_perguntas(qs, nq);
 }
 
+static void test_laya_backend(void) {
+    printf("[laya_backend]\n");
+    const char *fake = "{\"message\":{\"message_id\":\"m1\",\"role\":\"assistant\","
+                       "\"content\":\"A entropia cresce.\\nSegunda linha.\"}}";
+    char *c = laya_extract_content(fake);
+    CHECK(c && strstr(c, "A entropia cresce.") != NULL, "extrai content com unescape");
+    CHECK(c && strstr(c, "\nSegunda linha.") != NULL, "unescape \\n vira quebra real");
+    free(c);
+    CHECK(laya_extract_content("{\"sem\":\"campo\"}") == NULL, "sem content retorna NULL");
+    CHECK(laya_extract_content(NULL) == NULL, "NULL retorna NULL");
+    /* engine inexistente: falha rapido com timeout curto, sem travar */
+    char *out = NULL;
+    char *err = NULL;
+    long long t0 = now_ms();
+    LayaStatus st = laya_chat("http://127.0.0.1:59999", "oi", 2000, &out, &err);
+    long long dt = now_ms() - t0;
+    CHECK(st == LAYA_UNAVAILABLE, "porta fechada = UNAVAILABLE");
+    CHECK(dt < 15000, "fallback rapido (<15s)");
+    CHECK(out == NULL, "sem conteudo em falha");
+    free(err);
+    CHECK(laya_providers_ready("http://127.0.0.1:59999", 1500) == 0, "providers_ready=0 sem engine");
+    CHECK(laya_chat(NULL, NULL, 1000, &out, &err) == LAYA_ERR_ARGS, "args nulos = ERR_ARGS");
+}
+
+static void test_hibrida_fallback(void) {
+    printf("[hibrida]\n");
+    DocumentoExtraido doc;
+    memset(&doc, 0, sizeof doc);
+    BlocoTexto bs[1];
+    bs[0].texto = "A capital do Brasil e Brasilia, inaugurada em 1960.";
+    bs[0].pagina = 1; bs[0].x = bs[0].y = bs[0].largura = bs[0].altura = 0;
+    doc.blocos = bs; doc.num_blocos = 1; doc.num_paginas = 1;
+    int nc = 0;
+    Chunk *ch = dividir_em_chunks(&doc, 180, 0, &nc);
+    Embeddings *e = gerar_embeddings(ch, nc);
+    DecisionConfig cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f; cfg.top_k = 2;
+    cfg.backend = DECISION_BACKEND_LAYA_HTTP;
+    strncpy(cfg.laya_url, "http://127.0.0.1:59999", sizeof cfg.laya_url - 1);
+    cfg.laya_timeout_ms = 2000;
+    int via = -1;
+    Decisao *d = executar_decisao_hibrida("Qual e a capital do Brasil?", ch, nc, e, &cfg, &via);
+    CHECK(d && via == 0, "sem engine laya: cai para local (via=0)");
+    CHECK(d && d->resposta && strstr(d->resposta, "Brasilia") != NULL, "fallback local responde Brasilia");
+    liberar_decisao(d);
+    liberar_embeddings(e);
+    liberar_chunks(ch, nc);
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -208,6 +263,8 @@ int main(void) {
     test_packager();
     test_extractor();
     test_eval();
+    test_laya_backend();
+    test_hibrida_fallback();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

@@ -37,7 +37,7 @@ REM gera header de versao
   echo #define AMANDA_VERSION_GEN "%AVER%"
   echo #endif
 ) > include\version_gen.h
-echo [build] include\version_gen.h -> %AVER%
+echo [build] include\version_gen.h = %AVER%
 
 where gcc >nul 2>nul
 if errorlevel 1 (
@@ -46,7 +46,7 @@ if errorlevel 1 (
 )
 
 echo [build] compilando amandac.exe ...
-gcc -O2 -Wall -Wextra -std=c11 -Iinclude src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\packager.c src\server.c src\eval.c src\cli.c src\main.c -o amandac.exe -lws2_32
+gcc -O2 -Wall -Wextra -std=c11 -Iinclude src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\server.c src\eval.c src\cli.c src\main.c -o amandac.exe -lws2_32
 if errorlevel 1 (
   echo [ERRO] falha na compilacao.
   exit /b 1

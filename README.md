@@ -48,9 +48,20 @@ correta), calibração (confiança × acurácia, gap + ECE), latência (meta
 ≤500ms) e recusa (in-scope + probes fora-escopo). Detalhes em
 `docs/eval.md`.
 
+## Backend Laya (Fase 3, opcional)
+
+```sh
+amandac ask --package exemplo.amanda "O que é entropia?" --backend laya-http --laya-url http://127.0.0.1:8420
+```
+
+Envia (contexto + pergunta) ao `POST /chat` do engine Laya (LLM via
+Ollama, ex. `nimble`) e combina com o grounding local
+(página/citação/confiança). Qualquer falha cai para o motor local
+automaticamente. Detalhes em `docs/laya.md`.
+
 ## Testes
 ```bat
-gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\packager.c src\eval.c -o build\amanda_tests.exe && build\amanda_tests.exe
+gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\eval.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
 scripts\test_pipeline.bat
 ```
 

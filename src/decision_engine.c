@@ -1,4 +1,5 @@
 #include "decision_engine.h"
+#include "laya_backend.h"
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +59,9 @@ static float sigmoid(float x) { return 1.0f / (1.0f + expf(-x)); }
 
 Decisao *executar_decisao(const char *pergunta, Chunk *chunks, int num_chunks,
                            Embeddings *emb, const DecisionConfig *cfg) {
-    DecisionConfig c = {0.7f, 0.3f, 3};
+    DecisionConfig c;
+    memset(&c, 0, sizeof c);
+    c.limiar_confianca = 0.7f; c.limiar_recusa = 0.3f; c.top_k = 3;
     if (cfg) c = *cfg;
     Decisao *d = (Decisao *)xcalloc(1, sizeof(*d));
     int n = 0;
@@ -121,4 +124,52 @@ void liberar_decisao(Decisao *d) {
     free(d->resposta);
     free(d->citacao);
     free(d);
+}
+
+Decisao *executar_decisao_hibrida(const char *pergunta, Chunk *chunks, int num_chunks,
+                                  Embeddings *emb, const DecisionConfig *cfg,
+                                  int *usou_laya_out) {
+    if (usou_laya_out) *usou_laya_out = 0;
+    Decisao *local = executar_decisao(pergunta, chunks, num_chunks, emb, cfg);
+    if (!cfg || cfg->backend != DECISION_BACKEND_LAYA_HTTP) return local;
+    if (!pergunta || local->recusada) return local;
+
+    const char *url = cfg->laya_url[0] ? cfg->laya_url : LAYA_URL_DEFAULT;
+    int timeout = cfg->laya_timeout_ms > 0 ? cfg->laya_timeout_ms : LAYA_TIMEOUT_DEFAULT_MS;
+
+    ByteBuf msg; buf_init(&msg);
+    buf_append_cstr(&msg, "Com base SOMENTE no contexto abaixo, responda a pergunta "
+                          "de forma direta em portugues. Se o contexto nao contiver "
+                          "a resposta, diga exatamente: NAO CONSTA.\n\nContexto:\n");
+    if (local->citacao) buf_append_cstr(&msg, local->citacao);
+    buf_append_cstr(&msg, "\n\nPergunta: ");
+    buf_append_cstr(&msg, pergunta);
+    buf_reserve(&msg, 1);
+    msg.data[msg.len] = '\0';
+
+    char *conteudo = NULL;
+    char *lerr = NULL;
+    LayaStatus st = laya_chat(url, (char *)msg.data, timeout, &conteudo, &lerr);
+    buf_free(&msg);
+    free(lerr);
+    if (st != LAYA_OK) {
+        free(conteudo);
+        return local;
+    }
+    if (strstr(conteudo, "NAO CONSTA") != NULL) {
+        free(conteudo);
+        return local;
+    }
+    free(local->resposta);
+    {
+        ByteBuf b; buf_init(&b);
+        buf_append_cstr(&b, conteudo);
+        buf_append_cstr(&b, " (via Laya)");
+        buf_reserve(&b, 1);
+        b.data[b.len] = '\0';
+        local->resposta = (char *)b.data;
+    }
+    free(conteudo);
+    if (usou_laya_out) *usou_laya_out = 1;
+    return local;
 }

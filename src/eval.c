@@ -32,7 +32,9 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
         if (erro) *erro = xstrdup("eval: pacote sem chunks/embeddings");
         return -1;
     }
-    EvalConfig c = {0.1, 42u, 3};
+    EvalConfig c;
+    memset(&c, 0, sizeof c);
+    c.sample = 0.1; c.seed = 42u; c.top_k = 3;
     if (cfg) c = *cfg;
     if (c.sample <= 0.0) c.sample = 0.1;
     if (c.sample > 1.0) c.sample = 1.0;
@@ -56,7 +58,13 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
         int t = idx[i]; idx[i] = idx[j]; idx[j] = t;
     }
 
-    DecisionConfig dc = {0.7f, 0.3f, c.top_k};
+    DecisionConfig dc;
+    memset(&dc, 0, sizeof dc);
+    dc.limiar_confianca = 0.7f; dc.limiar_recusa = 0.3f;
+    dc.top_k = c.top_k;
+    dc.backend = c.backend;
+    if (c.laya_url[0])
+        snprintf(dc.laya_url, sizeof dc.laya_url, "%s", c.laya_url);
 
     double soma_conf = 0.0;
     double soma_lat = 0.0;
@@ -76,8 +84,10 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
         else if (q->tipo == TIPO_NOUL) out->n_noul++;
 
         long long t0 = now_ms();
-        Decisao *d = executar_decisao(query, pkg->chunks, pkg->num_chunks, pkg->embeddings, &dc);
+        int usou_laya = 0;
+        Decisao *d = executar_decisao_hibrida(query, pkg->chunks, pkg->num_chunks, pkg->embeddings, &dc, &usou_laya);
         long long t1 = now_ms();
+        if (usou_laya) out->via_laya++; else out->via_local++;
         double lat = (double)(t1 - t0);
         soma_lat += lat;
         if (lat > lat_max) lat_max = lat;
@@ -149,14 +159,16 @@ char *eval_to_json(const EvalReport *r, const char *package_path) {
         "\"lat_media_ms\":%.2f,\"lat_max_ms\":%.2f,\"pass_latencia\":%s,"
         "\"recusas_in_scope\":%d,"
         "\"por_tipo\":{\"choice\":[%d,%d],\"score\":[%d,%d],\"noul\":[%d,%d]},"
-        "\"probes_fora_escopo\":%d,\"recusas_probe\":%d,\"taxa_recusa_probe\":%.4f}",
+        "\"probes_fora_escopo\":%d,\"recusas_probe\":%d,\"taxa_recusa_probe\":%.4f,"
+        "\"via_laya\":%d,\"via_local\":%d}",
         esc, r->total_perguntas, r->amostradas,
         r->acertos, r->fidelidade, r->acuracia,
         r->confianca_media, r->gap_calibracao, r->ece,
         r->lat_media_ms, r->lat_max_ms, r->pass_latencia ? "true" : "false",
         r->recusas_in,
         r->hit_choice, r->n_choice, r->hit_score, r->n_score, r->hit_noul, r->n_noul,
-        r->n_probes, r->recusas_probe, r->taxa_recusa_probe);
+        r->n_probes, r->recusas_probe, r->taxa_recusa_probe,
+        r->via_laya, r->via_local);
     free(esc);
     buf_append_cstr(&b, tmp);
     buf_reserve(&b, 1);
@@ -181,4 +193,6 @@ void eval_print_text(const EvalReport *r, const char *package_path) {
            r->hit_choice, r->n_choice, r->hit_score, r->n_score, r->hit_noul, r->n_noul);
     printf("  recusa fora-escopo (probes): %d/%d (%.1f%%)\n",
            r->recusas_probe, r->n_probes, r->taxa_recusa_probe * 100.0);
+    if (r->via_laya + r->via_local > 0)
+        printf("  backend: laya=%d local=%d\n", r->via_laya, r->via_local);
 }

@@ -1,39 +1,36 @@
-# Amanda — Continuar (atualizado 2026-09-30, Fase 5 pronta)
+# Amanda — Continuar (atualizado 2026-10-01, Fases 1–5 prontas)
 
-Último commit após este lote: Fase 5 (`amandac eval`) em `https://github.com/dantas72/amanda`, branch `main`.
+Último commit após este lote: Fase 3 (`laya-http` + fallback) em
+`https://github.com/dantas72/amanda`, branch `main`.
 
 ## Estado atual (tudo verde)
-- Fases `[x]`: 1 (núcleo `amandac.exe`), 2 (CMake + CI win/linux/mac),
-  4 (SSE + `/v1/embeddings`), **5 (`eval` + métricas)**.
-- Testes: **25/25 unit** (`build/amanda_tests.exe`, +8 do `eval`),
-  pipeline `scripts\test_pipeline.bat` OK (agora com etapa `eval`).
-- CI: `.github/workflows/ci.yml` com etapa `Eval (Fase 5)`; Laya check segue opcional.
-  (Nesta máquina o engine Laya respondeu em `:8420` — OK, não SKIP.)
-- `version.bin`: **1.0.2** (`amandac 1.0.2`).
-- Livros em `pdf/` compilados para `build/*.amanda` (gitignore, não commitar):
-  - `CVM-livro_top_valores_mobiliarios_br_5ed.pdf` → `build/cvm_valores_mobiliarios.amanda` (90 perguntas)
-  - `Livro-IBRI-CVM.pdf` → `build/ibri_cvm.amanda` (21 perguntas)
-  - `livro_top_direito.pdf` → `build/top_direito.amanda` (159 perguntas)
-  - `top-analise-de-investimentos-2ed.pdf` → `build/top_analise_investimentos.amanda` (75 perguntas)
-- `amandac eval --sample 0.1`: latência PASS em todos (0–5 ms); fidelidade
-  50–100% conforme o livro; ver tabela e achados em `docs/eval.md`.
+- Fases `[x]`: 1 (núcleo `amandac.exe`), 2 (CMake + CI),
+  3 (`laya-http` com fallback + etapa `check_laya_llm`),
+  4 (SSE + `/v1/embeddings`), 5 (`eval` + métricas).
+- Testes: **36/36 unit** (`build/amanda_tests.exe`: +11 Fase 3),
+  pipeline `scripts\test_pipeline.bat` OK (7 etapas; laya-llm = SKIP
+  honesto com engine fora do ar).
+- `version.bin`: **1.0.6** (`amandac 1.0.6`).
+- Livros em `pdf/` compilados para `build/*.amanda` (gitignore, não commitar).
+- Ollama: `nimble:latest` (9B Q8) em `:11434`, cadastrado no Laya
+  (`localollama`/`ollamaserver`). Caminho vivo pendente de apontar o
+  slot **chat** do Laya p/ nimble (hoje: `claude-sonnet-4-6` sem chave
+  → `/chat` retorna erro → fallback local). Ver `docs/laya.md`.
 
-## Falta
-- [ ] **Fase 3 (deferida)** — integração Laya via HTTP. Pré-requisito: Laya
-      instalado com engine em `127.0.0.1:8420`; então `scripts\check_laya.bat`
-      passa de SKIP → OK. Ver `docs/laya.md`.
-- [ ] **Backlog pós-Fase 5** (ver `docs/eval.md`): recalibrar confiança do
-      `decision_engine` (overconfiança ~0.99), recalibrar limiar de recusa
-      (probes 0/3), ampliar extração de PDFs complexos + cobertura no `eval`.
+## Falta (backlog, fora das fases)
+- Recalibrar confiança do `decision_engine` (overconfiança ~0.99) e
+  limiar de recusa (probes 0/3) — ver `docs/eval.md`.
+- Ampliar extração de PDFs complexos + cobertura no `eval`.
+- Caminho vivo laya-http end-to-end (com nimble respondendo no `/chat`).
 
 ## Como retomar
 ```bat
 cd C:\Projetos\Projeto_IA\Amanda
 git pull
 build.bat                              :: incrementa version.bin e gera amandac.exe
-gcc -O2 -std=c11 -Iinclude tests/test_all.c src/amanda.c src/utils.c src/pdf_extractor.c src/chunker.c src/embedder.c src/question_gen.c src/decision_engine.c src/packager.c src/eval.c -o build/amanda_tests.exe && build/amanda_tests.exe
-scripts\test_pipeline.bat              :: pipeline completa (eval + Laya opcional)
-amandac.exe eval --package build\cvm_valores_mobiliarios.amanda --sample 0.1
+gcc -O2 -std=c11 -Iinclude tests/test_all.c src/amanda.c src/utils.c src/pdf_extractor.c src/chunker.c src/embedder.c src/question_gen.c src/decision_engine.c src/laya_backend.c src/packager.c src/eval.c -o build/amanda_tests.exe -lws2_32 && build/amanda_tests.exe
+scripts\test_pipeline.bat              :: pipeline completa (laya = SKIP sem engine)
+amandac.exe ask --package build\cvm_valores_mobiliarios.amanda "O que e ...?" --backend laya-http
 ```
 
 ## Decisões registradas (não reabrir sem motivo)
@@ -49,8 +46,15 @@ amandac.exe eval --package build\cvm_valores_mobiliarios.amanda --sample 0.1
      grande por regex/contagem, não por parse profundo.
    - `buf_append` com tamanho hardcoded: conferir sem o NUL (bug real da Fase 4);
      preferir `buf_append_cstr`.
+   - **`.bat` novo: escrever com CRLF e sem PowerShell inline com regex/aspas**
+     (bug real da Fase 3: cmd silencia o script; usar `curl` + `findstr`).
+   - **Flags com valor no `ask` posicional**: pular o valor no join da pergunta
+     (bug real da Fase 3: `--backend laya-http` contaminava a pergunta e mudava
+     a confiança 0.99 → 0.90).
 4. Commits como `Spoiledpay` (config local). Push usa Credential Manager do Windows.
 5. `build/`, `*.exe`, `*.amanda`, `models/*.gguf` estão no `.gitignore` (não commitar).
-6. **Fase 5 não recalibrou o motor**: `eval` mede e reporta (gap/ECE, recusa,
-   latência); mudar centro/inclinação/limiar do `decision_engine` ficou de
-   backlog deliberado para não alterar comportamento sem curva dedicada.
+6. **Fase 5 não recalibrou o motor**: `eval` mede e reporta; mudar
+   centro/inclinação/limiar do `decision_engine` ficou de backlog.
+7. **Fase 3 nunca depende do Laya/Ollama**: testes e pipeline passam sem eles
+   (fallback local + SKIP honesto). Ollama CLI pode não estar no PATH;
+   usar a API `:11434` para verificar.

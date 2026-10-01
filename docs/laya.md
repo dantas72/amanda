@@ -53,3 +53,38 @@ futura natural.
 - Não baixar "laya-421m.gguf" de terceiros: não é artefato oficial.
 - Não acoplar o build Fase 1 ao Laya: `build.bat` continua sem
   dependências externas. A integração é via HTTP em runtime.
+
+## Fase 3 — implementada (`amandac 1.0.5`)
+
+Backend opcional `laya-http` com fallback automático para o motor local:
+
+- `src/laya_backend.c`: cliente HTTP mínimo (sockets, sem deps) com
+  timeout. `laya_chat(url, message, timeout, &content)` faz
+  `POST /chat {"message": ...}` e extrai `message.content`. Retorna
+  `LAYA_UNAVAILABLE` (e o chamador cai para o local) em: engine fora
+  do ar, timeout, HTTP não-2xx, conteúdo vazio ou a string de erro
+  padrão do Laya (engine sem modelo ativo).
+- `executar_decisao_hibrida()` (`src/decision_engine.c`): roda primeiro
+  a recuperação local (grounding: página/citação/confiança) e, se
+  `backend == laya-http`, envia (citação + pergunta) ao Laya. Se o Laya
+  responder `NAO CONSTA` ou falhar, mantém a resposta local.
+  `usou_laya_out` informa o caminho usado.
+- Flags: `amandac ask --backend local|laya-http --laya-url URL`
+  (padrão `http://127.0.0.1:8420`, timeout 120s) e as mesmas no
+  `amandac eval` (relatório traz `via_laya`/`via_local`).
+- Pipeline: `scripts/check_laya_llm.bat/.sh` — verifica engine,
+  providers com modelos e `/chat` real; se live, roda
+  `ask --backend laya-http` de verdade; senão SKIP honesto com motivo.
+  Nunca falha a pipeline.
+
+## Ollama + nimble (verificado em 2026-10-01)
+
+- Ollama em `http://127.0.0.1:11434` com `nimble:latest` (9B Q8,
+  Qwen, 262k ctx). Laya lista `localollama`/`ollamaserver` como
+  custom providers (`base_url http://localhost:11434`).
+- Atenção: o slot **chat** do Laya pode apontar para um modelo de
+  nuvem sem chave (ex. `claude-sonnet-4-6`) — nesse caso o `/chat`
+  retorna a string de erro e o backend cai para local (SKIP honesto).
+  Para o caminho vivo, aponte o slot chat para o nimble no Settings
+  do Laya. `setup_complete:false` também foi observado sem impedir
+  o uso.

@@ -19,9 +19,9 @@ static void print_uso(void) {
     printf("Uso:\n");
     printf("  amandac compile --input <arq> --output <arq.amanda> [--title T] [--author A] [--lang pt-BR] [--chunk-words N] [--overlap N]\n");
     printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1]\n");
-    printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json]\n");
+    printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N]\n");
-    printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json]\n");
+    printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac version\n");
     printf("Entradas aceitas: .pdf .txt .csv .json\n");
 }
@@ -36,6 +36,21 @@ static int flag_bool(int argc, char **argv, const char *flag) {
     for (int i = 0; i < argc; i++)
         if (strcmp(argv[i], flag) == 0) return 1;
     return 0;
+}
+
+static int parse_backend(const char *s) {
+    if (!s) return DECISION_BACKEND_LOCAL;
+    if (strcmp(s, "laya-http") == 0 || strcmp(s, "laya") == 0) return DECISION_BACKEND_LAYA_HTTP;
+    return DECISION_BACKEND_LOCAL;
+}
+
+static void fill_backend(DecisionConfig *cfg, int argc, char **argv) {
+    cfg->backend = parse_backend(flag_val(argc, argv, "--backend", "local"));
+    const char *url = flag_val(argc, argv, "--laya-url", NULL);
+    if (url) {
+        strncpy(cfg->laya_url, url, sizeof cfg->laya_url - 1);
+        cfg->laya_url[sizeof cfg->laya_url - 1] = '\0';
+    }
 }
 
 static void data_hoje(char *buf, size_t n) {
@@ -141,7 +156,8 @@ static int cmd_ask(int argc, char **argv) {
         ByteBuf b; buf_init(&b);
         for (int i = 1; i < argc; i++) {
             if (strcmp(argv[i], "--package") == 0 || strcmp(argv[i], "--top-k") == 0 ||
-                strcmp(argv[i], "--question") == 0 || strcmp(argv[i], "--pergunta") == 0) {
+                strcmp(argv[i], "--question") == 0 || strcmp(argv[i], "--pergunta") == 0 ||
+                strcmp(argv[i], "--backend") == 0 || strcmp(argv[i], "--laya-url") == 0) {
                 i++; /* pula valor da flag */
                 continue;
             }
@@ -171,16 +187,23 @@ static int cmd_ask(int argc, char **argv) {
         free(qjoin);
         return 1;
     }
-    DecisionConfig cfg = {0.7f, 0.3f, topk > 0 ? topk : 3};
-    Decisao *d = executar_decisao(q, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg);
+    DecisionConfig cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f;
+    cfg.top_k = topk > 0 ? topk : 3;
+    fill_backend(&cfg, argc, argv);
+    int via_laya = 0;
+    Decisao *d = executar_decisao_hibrida(q, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg, &via_laya);
     if (asjson) {
         char *esc = json_escape(d->resposta);
-        printf("{\"resposta\":\"%s\",\"probabilidade\":%.4f,\"confianca\":%.4f,\"pagina\":%d,\"recusada\":%s}\n",
-               esc, d->probabilidade, d->confianca, d->pagina, d->recusada ? "true" : "false");
+        printf("{\"resposta\":\"%s\",\"probabilidade\":%.4f,\"confianca\":%.4f,\"pagina\":%d,\"recusada\":%s,\"backend\":\"%s\"}\n",
+               esc, d->probabilidade, d->confianca, d->pagina, d->recusada ? "true" : "false",
+               via_laya ? "laya-http" : "local");
         free(esc);
     } else {
         printf("%s\n", d->resposta);
-        printf("\n[confianca=%.2f pagina=%d%s]\n", d->confianca, d->pagina,
+        printf("\n[confianca=%.2f pagina=%d backend=%s%s]\n", d->confianca, d->pagina,
+               via_laya ? "laya-http" : "local",
                d->recusada ? " recusada" : "");
     }
     liberar_decisao(d);
@@ -245,7 +268,17 @@ static int cmd_eval(int argc, char **argv) {
         free(erro);
         return 1;
     }
-    EvalConfig cfg = {sample, seed, topk > 0 ? topk : 3};
+    EvalConfig cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.sample = sample; cfg.seed = seed; cfg.top_k = topk > 0 ? topk : 3;
+    cfg.backend = parse_backend(flag_val(argc, argv, "--backend", "local"));
+    {
+        const char *url = flag_val(argc, argv, "--laya-url", NULL);
+        if (url) {
+            strncpy(cfg.laya_url, url, sizeof cfg.laya_url - 1);
+            cfg.laya_url[sizeof cfg.laya_url - 1] = '\0';
+        }
+    }
     EvalReport rep;
     if (eval_run(pkg, &cfg, &rep, &erro) != 0) {
         fprintf(stderr, "eval: %s\n", erro ? erro : "?");

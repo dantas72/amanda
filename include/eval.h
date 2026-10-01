@@ -7,6 +7,8 @@ typedef struct {
     double sample;
     unsigned int seed;
     int top_k;
+    int backend;
+    char laya_url[256];
 } EvalConfig;
 
 typedef struct {
@@ -31,6 +33,8 @@ typedef struct {
     int recusas_probe;
     double taxa_recusa_probe;
     int pass_latencia;
+    int via_laya;
+    int via_local;
 } EvalReport;
 
 int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **erro);

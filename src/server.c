@@ -301,7 +301,9 @@ static int handle_conn(sock_t fd, AmandaPackage *pkg) {
             free(prompt);
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo messages[].content ausente\"}");
         } else {
-            DecisionConfig cfg = {0.7f, 0.3f, 3};
+            DecisionConfig cfg;
+            memset(&cfg, 0, sizeof cfg);
+            cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f; cfg.top_k = 3;
             float conf = 0; int pg = 0;
             char *ans = montar_resposta_chat(prompt, pkg->chunks, pkg->num_chunks,
                                              pkg->embeddings, &cfg, &conf, &pg);
@@ -329,7 +331,9 @@ static int handle_conn(sock_t fd, AmandaPackage *pkg) {
             free(prompt);
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo pergunta ausente\"}");
         } else {
-            DecisionConfig cfg = {0.7f, 0.3f, 3};
+            DecisionConfig cfg;
+            memset(&cfg, 0, sizeof cfg);
+            cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f; cfg.top_k = 3;
             Decisao *d = executar_decisao(prompt, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg);
             char *esc = json_escape(d->resposta);
             char *escc = json_escape(d->citacao ? d->citacao : "");
