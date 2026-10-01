@@ -12,3 +12,8 @@ build/
 models/*.gguf
 models/*.onnx
 models/*.bin
+# docs locais de trabalho (nao publicar no GitHub)
+Skill.md
+Jimi.md
+Projeto.md
+CONTINUAR.md
