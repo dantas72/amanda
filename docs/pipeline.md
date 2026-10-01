@@ -31,9 +31,10 @@
    (0.6 cosseno + 0.4 sobreposição léxica), recusa calibrada
    (`--conf-center/--conf-slope/--limiar-recusa`, Fase 7.2) e backend
    sempre local.
-7. **Validação** — testes unitários em C (`tests/test_all.c`, 83 checks) +
+7. **Validação** — testes unitários em C (`tests/test_all.c`, 98 checks) +
    pipeline de integração (`scripts/test_pipeline.bat/.sh`, 8 etapas
-   incluindo `eval`, `calibrate` e compile via `--config`). O `eval`
+   incluindo `eval`, `calibrate`, compile via `--config` e smoke do
+   `POST /v1/eval`). O `eval`
    reporta cobertura da extração (páginas, blocos, chunks, chars,
    streams, falhas) em texto e `--json` (objeto `cobertura`).
 8. **Laya (etapas 7–8/8 da pipeline, opcional)** — `scripts/check_laya.bat`

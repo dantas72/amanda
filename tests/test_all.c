@@ -14,7 +14,26 @@
 #include "eval.h"
 #include "calibra.h"
 #include "config.h"
+#include "server.h"
 #include "utils.h"
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <process.h>
+typedef SOCKET t75_sock;
+#define T75_INVALID INVALID_SOCKET
+#define t75_close closesocket
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <pthread.h>
+typedef int t75_sock;
+#define T75_INVALID -1
+#define t75_close close
+#endif
 
 static int passes = 0, fails = 0;
 
@@ -577,6 +596,220 @@ static void test_pdf_plus(void) {
     }
 }
 
+/* ============ Fase 7.5: servidor robusto com sockets reais ============ */
+
+#define T75_PORT 18081
+#define T75_KEY "k-teste-75"
+
+static char *t75_request(const char *req, size_t reqlen) {
+    t75_sock s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s == T75_INVALID) return NULL;
+#ifdef _WIN32
+    {
+        DWORD ms = 10000;
+        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&ms, sizeof ms);
+    }
+#else
+    {
+        struct timeval tv;
+        tv.tv_sec = 10; tv.tv_usec = 0;
+        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    }
+#endif
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons((unsigned short)T75_PORT);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) { t75_close(s); return NULL; }
+    size_t sent = 0;
+    while (sent < reqlen) {
+        int r = send(s, req + sent, (int)(reqlen - sent), 0);
+        if (r <= 0) { t75_close(s); return NULL; }
+        sent += (size_t)r;
+    }
+    ByteBuf b; buf_init(&b);
+    char tmp[8192];
+    for (;;) {
+        int r = recv(s, tmp, sizeof tmp, 0);
+        if (r <= 0) break;
+        buf_append(&b, tmp, (size_t)r);
+    }
+    t75_close(s);
+    buf_reserve(&b, 1);
+    b.data[b.len] = '\0';
+    return (char *)b.data;
+}
+
+static char *t75_call(const char *method, const char *path, const char *auth, const char *json) {
+    ByteBuf req; buf_init(&req);
+    char head[1024];
+    size_t bl = json ? strlen(json) : 0;
+    snprintf(head, sizeof head,
+        "%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n"
+        "Content-Type: application/json\r\nContent-Length: %lu\r\n%s%s\r\n\r\n",
+        method, path, (unsigned long)bl,
+        auth ? "Authorization: Bearer " : "", auth ? auth : "");
+    buf_append_cstr(&req, head);
+    if (bl) buf_append(&req, json, bl);
+    char *resp = t75_request((char *)req.data, req.len);
+    buf_free(&req);
+    return resp;
+}
+
+#ifdef _WIN32
+static unsigned __stdcall t75_srv(void *p) { server_run((const ServerConfig *)p); return 0; }
+static unsigned __stdcall t75_cli(void *p) {
+    char **slot = (char **)p;
+    slot[0] = t75_call("POST", "/v1/chat/completions", T75_KEY,
+        "{\"model\":\"amanda\",\"messages\":[{\"role\":\"user\",\"content\":\"capital?\"}]}");
+    return 0;
+}
+#else
+static void *t75_srv(void *p) { server_run((const ServerConfig *)p); return NULL; }
+static void *t75_cli(void *p) {
+    char **slot = (char **)p;
+    slot[0] = t75_call("POST", "/v1/chat/completions", T75_KEY,
+        "{\"model\":\"amanda\",\"messages\":[{\"role\":\"user\",\"content\":\"capital?\"}]}");
+    return NULL;
+}
+#endif
+
+static void test_serve_75(void) {
+    printf("[serve_75]\n");
+    /* pacote em memoria com 60 perguntas (testa teto do /v1/eval) */
+    Chunk *ch = (Chunk *)xcalloc(1, sizeof(Chunk));
+    ch[0].texto = xstrdup("A capital do Brasil e Brasilia, inaugurada em 1960. O congresso fica em Brasilia.");
+    ch[0].hash = xstrdup("eeee4444"); ch[0].pagina_inicio = 1; ch[0].pagina_fim = 1; ch[0].num_tokens = 14;
+    Embeddings *e = gerar_embeddings(ch, 1);
+    int nq = 60;
+    PerguntaTipada *qs = (PerguntaTipada *)xcalloc((size_t)nq, sizeof(PerguntaTipada));
+    for (int i = 0; i < nq; i++) {
+        qs[i].tipo = (TipoPergunta)(i % 3);
+        qs[i].enunciado = xstrdup("Qual e a capital do Brasil segundo o documento de teste?");
+        qs[i].pagina_fonte = 1;
+        qs[i].chunk_hash = xstrdup("eeee4444");
+    }
+    AmandaPackage *pkg = (AmandaPackage *)xcalloc(1, sizeof(*pkg));
+    pkg->titulo = xstrdup("t75"); pkg->autor = xstrdup("t");
+    pkg->data = xstrdup("2026-10-01"); pkg->idioma = xstrdup("pt-BR");
+    pkg->versao_app = xstrdup("1.0.15");
+    pkg->chunks = ch; pkg->num_chunks = 1;
+    pkg->embeddings = e; pkg->perguntas = qs; pkg->num_perguntas = nq;
+    pkg->num_paginas = 1; pkg->extra_blocos = 1;
+
+    volatile int stop = 0;
+    ServerConfig sc;
+    memset(&sc, 0, sizeof sc);
+    sc.host = "127.0.0.1"; sc.port = T75_PORT; sc.pkg = pkg; sc.stop_flag = &stop;
+    sc.cors_origin = "http://teste.local";
+    sc.api_key = T75_KEY;
+    sc.max_body = 1024;
+    sc.max_conns = 8;
+    sc.eval_max = 50;
+
+#ifdef _WIN32
+    uintptr_t th = _beginthreadex(NULL, 0, t75_srv, &sc, 0, NULL);
+    CHECK(th != 0, "sobe servidor 7.5 em thread");
+#else
+    pthread_t th;
+    CHECK(pthread_create(&th, NULL, t75_srv, &sc) == 0, "sobe servidor 7.5 em thread");
+#endif
+    /* espera pronto (ate ~10s) */
+    char *ready = NULL;
+    for (int i = 0; i < 100 && !ready; i++) {
+        char *r = t75_call("GET", "/v1/models", T75_KEY, NULL);
+        if (r && strstr(r, "200 OK")) ready = r;
+        else { free(r); sleep_ms(100); }
+    }
+    CHECK(ready && strstr(ready, "\"amanda\""), "models com auth ok");
+    CHECK(ready && strstr(ready, "Access-Control-Allow-Origin: http://teste.local"), "cors configurado ecoa");
+    free(ready);
+
+    {
+        char *r = t75_call("GET", "/v1/models", NULL, NULL);
+        CHECK(r && strstr(r, "401"), "sem auth = 401");
+        free(r);
+    }
+    {
+        char *r = t75_call("GET", "/v1/models", "chave-errada", NULL);
+        CHECK(r && strstr(r, "401"), "auth errada = 401");
+        free(r);
+    }
+    {
+        char *r = t75_call("OPTIONS", "/v1/chat/completions", NULL, NULL);
+        CHECK(r && strstr(r, "204") && strstr(r, "Authorization"), "preflight 204 com Authorization");
+        free(r);
+    }
+    {
+        /* corpo ~2KB > max_body 1024 -> 413 */
+        ByteBuf big; buf_init(&big);
+        buf_append_cstr(&big, "{\"model\":\"amanda\",\"messages\":[{\"role\":\"user\",\"content\":\"");
+        for (int i = 0; i < 2000; i++) buf_append(&big, "x", 1);
+        buf_append_cstr(&big, "\"}]}");
+        buf_reserve(&big, 1); big.data[big.len] = '\0';
+        char *r = t75_call("POST", "/v1/chat/completions", T75_KEY, (char *)big.data);
+        CHECK(r && strstr(r, "413"), "body gigante = 413");
+        free(r);
+        buf_free(&big);
+    }
+    {
+        char *r = t75_call("POST", "/v1/chat/completions", T75_KEY,
+            "{\"model\":\"amanda\",\"messages\":[{\"role\":\"user\",\"content\":\"Qual e a capital?\"}]}");
+        CHECK(r && strstr(r, "200 OK") && strstr(r, "Brasilia"), "chat com auth responde");
+        free(r);
+    }
+    {
+        char *r = t75_call("POST", "/v1/eval", T75_KEY, "{\"sample\":0.05}");
+        CHECK(r && strstr(r, "200 OK") && strstr(r, "cobertura"), "eval pequeno = 200 com cobertura");
+        free(r);
+    }
+    {
+        /* 60 amostradas > eval_max 50 -> 400 honesto */
+        char *r = t75_call("POST", "/v1/eval", T75_KEY, "{\"sample\":1.0}");
+        CHECK(r && strstr(r, "400") && strstr(r, "teto"), "eval gigante = 400 com teto");
+        free(r);
+    }
+    {
+        /* concorrencia: 4 chats paralelos, todos 200 */
+        char *rs[4] = {NULL, NULL, NULL, NULL};
+#ifdef _WIN32
+        uintptr_t hs[4];
+        for (int i = 0; i < 4; i++) hs[i] = _beginthreadex(NULL, 0, t75_cli, &rs[i], 0, NULL);
+        for (int i = 0; i < 4; i++) {
+            CHECK(hs[i] != 0, "thread cliente sobe");
+            if (hs[i]) { WaitForSingleObject((HANDLE)hs[i], 15000); CloseHandle((HANDLE)hs[i]); }
+        }
+#else
+        pthread_t hs[4];
+        for (int i = 0; i < 4; i++) hs[i] = 0;
+        for (int i = 0; i < 4; i++)
+            CHECK(pthread_create(&hs[i], NULL, t75_cli, &rs[i]) == 0, "thread cliente sobe");
+        for (int i = 0; i < 4; i++) if (hs[i]) pthread_join(hs[i], NULL);
+#endif
+        int allok = 1;
+        for (int i = 0; i < 4; i++) {
+            if (!rs[i] || !strstr(rs[i], "200 OK")) allok = 0;
+            free(rs[i]);
+        }
+        CHECK(allok, "4 chats paralelos = 200");
+    }
+
+    stop = 1;
+    {
+        /* acorda o accept para o loop ver o stop */
+        char *r = t75_call("GET", "/v1/models", T75_KEY, NULL);
+        free(r);
+    }
+#ifdef _WIN32
+    WaitForSingleObject((HANDLE)th, 15000);
+    CloseHandle((HANDLE)th);
+#else
+    pthread_join(th, NULL);
+#endif
+    liberar_package(pkg);
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -592,6 +825,7 @@ int main(void) {
     test_serve_calib();
     test_config_templates();
     test_pdf_plus();
+    test_serve_75();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

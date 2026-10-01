@@ -32,6 +32,10 @@ if errorlevel 1 ( taskkill /F /IM amandac.exe >nul 2>nul & exit /b 1 )
 curl.exe -s --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions -H "Content-Type: application/json" -d "@examples\smoke_stream.json" -o "%TEMP%\amanda_sse.txt"
 powershell -NoProfile -Command "$t = Get-Content $env:TEMP\amanda_sse.txt -Raw; if (-not $t.Contains('data: [DONE]')) { Write-Host 'sse: SEM DONE'; exit 1 } else { Write-Host 'sse: OK' }"
 if errorlevel 1 ( taskkill /F /IM amandac.exe >nul 2>nul & exit /b 1 )
+echo [4c/5] eval endpoint...
+curl.exe -s --max-time 20 -X POST http://127.0.0.1:18080/v1/eval -H "Content-Type: application/json" -d "@examples\smoke_eval.json" -o "%TEMP%\amanda_eval.json"
+powershell -NoProfile -Command "$t = Get-Content $env:TEMP\amanda_eval.json -Raw; if (-not $t.Contains('cobertura')) { Write-Host 'eval-http: SEM cobertura'; exit 1 } else { Write-Host 'eval-http: OK' }"
+if errorlevel 1 ( taskkill /F /IM amandac.exe >nul 2>nul & exit /b 1 )
 taskkill /F /IM amandac.exe >nul 2>nul
 echo [5/6] eval (Fase 5 - calibracao)...
 amandac.exe eval --package build\exemplo.amanda --sample 1.0 || exit /b 1

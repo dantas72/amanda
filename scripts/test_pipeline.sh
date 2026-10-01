@@ -28,6 +28,9 @@ curl -fsS --max-time 10 -X POST http://127.0.0.1:18080/v1/embeddings \
 curl -fsS --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d @examples/smoke_stream.json | grep -q 'data: \[DONE\]'
+curl -fsS --max-time 20 -X POST http://127.0.0.1:18080/v1/eval \
+  -H 'Content-Type: application/json' \
+  -d @examples/smoke_eval.json | grep -q '"cobertura"'
 kill $SRV
 echo "[5/7] eval (Fase 5 - calibracao)..."
 $BIN eval --package /tmp/exemplo.amanda --sample 1.0

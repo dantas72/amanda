@@ -22,6 +22,7 @@ static void print_uso(void) {
     printf("  amandac compile --input <arq> --output <arq.amanda> [--title T] [--author A] [--lang pt-BR] [--chunk-words N] [--overlap N]\n");
     printf("            [--config <arq.yaml>] [--templates-dir DIR] [--max-choice N] [--max-score N] [--max-noul N]\n");
     printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
+    printf("                  [--cors ORIGEM] [--api-key CHAVE] [--max-body BYTES] [--max-conns N] [--eval-max N]\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N]\n");
     printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
@@ -221,6 +222,17 @@ static int cmd_serve(int argc, char **argv) {
         if (cc) cfg.conf_center = (float)atof(cc);
         if (cs) cfg.conf_slope = (float)atof(cs);
         if (lr) { cfg.limiar_recusa = (float)atof(lr); cfg.tem_limiar = 1; }
+        /* Fase 7.5: robustez (defaults no server_run quando ausente) */
+        const char *co = flag_val(argc, argv, "--cors", NULL);
+        const char *ak = flag_val(argc, argv, "--api-key", NULL);
+        const char *mb = flag_val(argc, argv, "--max-body", NULL);
+        const char *mc = flag_val(argc, argv, "--max-conns", NULL);
+        const char *em = flag_val(argc, argv, "--eval-max", NULL);
+        if (co) cfg.cors_origin = co;
+        if (ak) cfg.api_key = ak;
+        if (mb) cfg.max_body = atol(mb);
+        if (mc) cfg.max_conns = atoi(mc);
+        if (em) cfg.eval_max = atoi(em);
     }
     int rc = server_run(&cfg);
     liberar_package(pkg);

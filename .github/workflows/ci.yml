@@ -73,6 +73,9 @@ jobs:
           curl -fsS --max-time 10 -N -X POST http://127.0.0.1:18080/v1/chat/completions \
             -H 'Content-Type: application/json' \
             -d @examples/smoke_stream.json | grep -q 'data: \[DONE\]'
+          curl -fsS --max-time 20 -X POST http://127.0.0.1:18080/v1/eval \
+            -H 'Content-Type: application/json' \
+            -d @examples/smoke_eval.json | grep -q '"cobertura"'
           kill $SRV
 
       - name: Laya check (optional, never fails)

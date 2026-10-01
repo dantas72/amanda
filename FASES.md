@@ -18,5 +18,10 @@
     (cobertura persistida, leitor aceita v1), cobertura no `eval` (texto + `--json`).
     Testes 83/83. Nos 4 livros: 0 falhas (CVM 448 blocos/412p fid 86%,
     IBRI 178/161p fid 90%, Invest 253/260p fid 90%, Direito 1393/1348p).
-  - [ ] 7.5 Servidor robusto: threads, CORS, auth, limites, `POST /v1/eval`.
+  - [x] 7.5 Servidor robusto: thread por conexão (cap `--max-conns`, cheio = 503),
+    CORS configurável (`--cors`, preflight completo), auth Bearer opcional
+    (`--api-key`, sem chave = aberto, nunca loga a chave), limites
+    (`--max-body` = 413, header 64KB = 431, recv timeout 30s),
+    `POST /v1/eval` (sample/seed/top_k, teto `--eval-max` = 400 honesto).
+    Testes 98/98 (suite `serve_75` com sockets reais: 401/413/CORS/eval/concorrência).
   - [ ] 7.6 Release: artefatos CI + `inspect --json`.
