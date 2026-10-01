@@ -30,7 +30,12 @@
 - [x] Fase 10 — Robustez extração/eval + guia de uso: limiares TJ configuráveis
   (`compile --tj-espaco/--tj-salto`, seção `extracao:` no YAML, defaults
   -100/+500), `eval --max-amostras` (teto determinístico p/ bases gigantes)
-  + progresso em `stderr`, guia `docs/guia_uso.md` (fluxo completo, 1 `.amanda`
+  + progresso em `stderr`,   guia `docs/guia_uso.md` (fluxo completo, 1 `.amanda`
   por livro, serve, troubleshooting), fixtures `smoke_chat/decisions.json`.
   Testes 108/108. macOS segue fora do CI (falha ARM pré-existente desde 7.2;
   reativar com diagnóstico em Mac real — sem fingir correção).
+- [x] Fase 11 — Serve com LLM vivo: `serve --backend laya-http`
+  (`--laya-url`, `--laya-timeout-ms`, `--laya-max` com fallback local
+  imediato sem slot), grounding sempre local, campo `"backend"` nas
+  respostas, smoke `serve` no `check_laya_llm` (SKIP sem engine).
+  Testes 117/117 (stub Laya: vivo, fallback, teto de concorrência).

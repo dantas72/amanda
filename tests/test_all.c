@@ -606,6 +606,8 @@ static void test_pdf_plus(void) {
 #define T75_PORT 18081
 #define T75_KEY "k-teste-75"
 
+static int g_t75_port = T75_PORT;
+
 static char *t75_request(const char *req, size_t reqlen) {
     t75_sock s = socket(AF_INET, SOCK_STREAM, 0);
     if (s == T75_INVALID) return NULL;
@@ -624,7 +626,7 @@ static char *t75_request(const char *req, size_t reqlen) {
     struct sockaddr_in a;
     memset(&a, 0, sizeof a);
     a.sin_family = AF_INET;
-    a.sin_port = htons((unsigned short)T75_PORT);
+    a.sin_port = htons((unsigned short)g_t75_port);
     a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (connect(s, (struct sockaddr *)&a, sizeof a) != 0) { t75_close(s); return NULL; }
     size_t sent = 0;
@@ -891,6 +893,282 @@ static void test_fase10(void) {
     }
 }
 
+/* ============ Fase 11: serve com LLM vivo (stub Laya) ============ */
+
+#define T11_SERVE_PORT 18082
+#define T11_STUB_PORT 18083
+
+static volatile int stub_stop = 0;
+static int stub_delay_ms = 0;
+static int stub_cur = 0, stub_max = 0;
+#ifdef _WIN32
+static CRITICAL_SECTION stub_cs;
+static int stub_once = 0;
+static void stub_lock(void) {
+    if (!stub_once) { InitializeCriticalSection(&stub_cs); stub_once = 1; }
+    EnterCriticalSection(&stub_cs);
+}
+static void stub_unlock(void) { LeaveCriticalSection(&stub_cs); }
+#else
+static pthread_mutex_t stub_mtx = PTHREAD_MUTEX_INITIALIZER;
+static void stub_lock(void) { pthread_mutex_lock(&stub_mtx); }
+static void stub_unlock(void) { pthread_mutex_unlock(&stub_mtx); }
+#endif
+
+/* Atende um POST /chat do stub com a resposta fixa (conta concorrencia). */
+#ifdef _WIN32
+static unsigned __stdcall stub_conn(void *p) {
+#else
+static void *stub_conn(void *p) {
+#endif
+    t75_sock fd = (t75_sock)(intptr_t)p;
+    stub_lock(); stub_cur++; if (stub_cur > stub_max) stub_max = stub_cur; stub_unlock();
+    /* le cabecalho + corpo (Content-Length) sem interpretar */
+    char hb[32768];
+    int got = 0;
+    int clen = 0;
+    while (got < (int)sizeof(hb) - 1) {
+        int r = recv(fd, hb + got, (int)sizeof(hb) - 1 - got, 0);
+        if (r <= 0) break;
+        got += r;
+        hb[got] = '\0';
+        char *he = strstr(hb, "\r\n\r\n");
+        if (he) {
+            char *cl = strstr(hb, "Content-Length:");
+            if (cl) clen = atoi(cl + 15);
+            int hlen = (int)(he + 4 - hb);
+            int have = got - hlen;
+            while (have < clen) {
+                r = recv(fd, hb, sizeof(hb), 0);
+                if (r <= 0) break;
+                have += r;
+            }
+            break;
+        }
+    }
+    if (stub_delay_ms > 0) sleep_ms(stub_delay_ms);
+    static const char body[] =
+        "{\"message\":{\"message_id\":\"m1\",\"role\":\"assistant\","
+        "\"content\":\"RESPOSTA-STUB-VIVA\"}}";
+    char head[256];
+    snprintf(head, sizeof head,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+        "Content-Length: %lu\r\nConnection: close\r\n\r\n",
+        (unsigned long)(sizeof(body) - 1));
+    send(fd, head, (int)strlen(head), 0);
+    send(fd, body, (int)(sizeof(body) - 1), 0);
+    t75_close(fd);
+    stub_lock(); if (stub_cur > 0) stub_cur--; stub_unlock();
+#ifdef _WIN32
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+#ifdef _WIN32
+static unsigned __stdcall stub_srv(void *p) {
+#else
+static void *stub_srv(void *p) {
+#endif
+    (void)p;
+    t75_sock srv = socket(AF_INET, SOCK_STREAM, 0);
+    if (srv == T75_INVALID) return 0;
+    int opt = 1;
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof opt);
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons((unsigned short)T11_STUB_PORT);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(srv, (struct sockaddr *)&a, sizeof a) != 0) { t75_close(srv); return 0; }
+    if (listen(srv, 16) != 0) { t75_close(srv); return 0; }
+    while (!stub_stop) {
+        struct sockaddr_in cli;
+#ifdef _WIN32
+        int cl = sizeof cli;
+#else
+        socklen_t cl = sizeof cli;
+#endif
+        t75_sock fd = accept(srv, (struct sockaddr *)&cli, &cl);
+        if (fd == T75_INVALID) {
+            if (stub_stop) break;
+            continue;
+        }
+        if (stub_stop) { t75_close(fd); break; }
+#ifdef _WIN32
+        uintptr_t h = _beginthreadex(NULL, 0, stub_conn, (void *)(intptr_t)fd, 0, NULL);
+        if (h == 0) { t75_close(fd); } else CloseHandle((HANDLE)h);
+#else
+        pthread_t th;
+        if (pthread_create(&th, NULL, stub_conn, (void *)(intptr_t)fd) != 0) t75_close(fd);
+        else pthread_detach(th);
+#endif
+    }
+    t75_close(srv);
+#ifdef _WIN32
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+static void stub_start(void) {
+    stub_stop = 0;
+#ifdef _WIN32
+    _beginthreadex(NULL, 0, stub_srv, NULL, 0, NULL);
+#else
+    pthread_t th;
+    pthread_create(&th, NULL, stub_srv, NULL);
+    pthread_detach(th);
+#endif
+    /* espera o listen (ate ~5s): sem isso o 1o chat cai em fallback */
+    for (int i = 0; i < 50; i++) {
+        t75_sock s = socket(AF_INET, SOCK_STREAM, 0);
+        if (s != T75_INVALID) {
+            struct sockaddr_in a;
+            memset(&a, 0, sizeof a);
+            a.sin_family = AF_INET;
+            a.sin_port = htons((unsigned short)T11_STUB_PORT);
+            a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            int ok = connect(s, (struct sockaddr *)&a, sizeof a);
+            t75_close(s);
+            if (ok == 0) break;
+        }
+        sleep_ms(100);
+    }
+}
+
+static void stub_halt(void) {
+    stub_stop = 1;
+    /* acorda o accept */
+    t75_sock s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s != T75_INVALID) {
+        struct sockaddr_in a;
+        memset(&a, 0, sizeof a);
+        a.sin_family = AF_INET;
+        a.sin_port = htons((unsigned short)T11_STUB_PORT);
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        connect(s, (struct sockaddr *)&a, sizeof a);
+        t75_close(s);
+    }
+    sleep_ms(400);
+}
+
+static void test_serve_llm(void) {
+    printf("[serve_llm]\n");
+    Chunk *ch = (Chunk *)xcalloc(1, sizeof(Chunk));
+    ch[0].texto = xstrdup("A capital do Brasil e Brasilia, inaugurada em 1960.");
+    ch[0].hash = xstrdup("dddd1111"); ch[0].pagina_inicio = 1; ch[0].pagina_fim = 1; ch[0].num_tokens = 9;
+    Embeddings *e = gerar_embeddings(ch, 1);
+    QuestionGenConfig qc = {1, 1, 1};
+    int nq = 0;
+    PerguntaTipada *qs = gerar_perguntas(ch, 1, &qc, &nq);
+    AmandaPackage *pkg = (AmandaPackage *)xcalloc(1, sizeof(*pkg));
+    pkg->titulo = xstrdup("t11"); pkg->autor = xstrdup("t");
+    pkg->data = xstrdup("2026-10-01"); pkg->idioma = xstrdup("pt-BR");
+    pkg->versao_app = xstrdup("1.0.18");
+    pkg->chunks = ch; pkg->num_chunks = 1;
+    pkg->embeddings = e; pkg->perguntas = qs; pkg->num_perguntas = nq;
+    pkg->num_paginas = 1; pkg->extra_blocos = 1;
+
+    g_t75_port = T11_SERVE_PORT;
+
+    /* Serve primeiro (server_run faz WSAStartup no Windows); o stub
+       precisa do WSA ativo para socket()/connect(). */
+    volatile int stop = 0;
+    ServerConfig sc;
+    memset(&sc, 0, sizeof sc);
+    sc.host = "127.0.0.1"; sc.port = T11_SERVE_PORT; sc.pkg = pkg; sc.stop_flag = &stop;
+    sc.backend = DECISION_BACKEND_LAYA_HTTP;
+    snprintf(sc.laya_url, sizeof sc.laya_url, "http://127.0.0.1:%d", T11_STUB_PORT);
+    sc.laya_timeout_ms = 8000;
+    sc.laya_max = 2;
+#ifdef _WIN32
+    uintptr_t th = _beginthreadex(NULL, 0, t75_srv, &sc, 0, NULL);
+    CHECK(th != 0, "serve laya sobe");
+#else
+    pthread_t th;
+    CHECK(pthread_create(&th, NULL, t75_srv, &sc) == 0, "serve laya sobe");
+#endif
+    char *ready = NULL;
+    for (int i = 0; i < 100 && !ready; i++) {
+        char *r = t75_call("GET", "/v1/models", NULL, NULL);
+        if (r && strstr(r, "200 OK")) ready = r;
+        else { free(r); sleep_ms(100); }
+    }
+    CHECK(ready != NULL, "serve laya responde");
+    free(ready);
+
+    /* --- fase A: stub vivo com atraso (testa caminho vivo + teto) --- */
+    stub_delay_ms = 400;
+    stub_cur = 0; stub_max = 0;
+    stub_start();
+
+    {
+        char *r = t75_call("POST", "/v1/chat/completions", NULL,
+            "{\"model\":\"amanda\",\"messages\":[{\"role\":\"user\",\"content\":\"Qual e a capital?\"}]}");
+        CHECK(r && strstr(r, "RESPOSTA-STUB-VIVA"), "chat usa LLM vivo");
+        CHECK(r && strstr(r, "laya-http"), "chat informa backend laya-http");
+        free(r);
+    }
+    {
+        char *r = t75_call("POST", "/v1/decisions", NULL, "{\"pergunta\":\"Qual e a capital?\"}");
+        CHECK(r && strstr(r, "laya-http"), "decisions informa backend laya-http");
+        free(r);
+    }
+    {
+        /* 4 paralelos com stub lento: todos 200 e stub viu no max 2 */
+        char *rs[4] = {NULL, NULL, NULL, NULL};
+#ifdef _WIN32
+        uintptr_t hs[4];
+        for (int i = 0; i < 4; i++) hs[i] = _beginthreadex(NULL, 0, t75_cli, &rs[i], 0, NULL);
+        for (int i = 0; i < 4; i++) {
+            if (hs[i]) { WaitForSingleObject((HANDLE)hs[i], 30000); CloseHandle((HANDLE)hs[i]); }
+        }
+#else
+        pthread_t hs[4];
+        for (int i = 0; i < 4; i++) hs[i] = 0;
+        for (int i = 0; i < 4; i++) pthread_create(&hs[i], NULL, t75_cli, &rs[i]);
+        for (int i = 0; i < 4; i++) if (hs[i]) pthread_join(hs[i], NULL);
+#endif
+        int allok = 1;
+        for (int i = 0; i < 4; i++) {
+            if (!rs[i] || !strstr(rs[i], "200 OK")) allok = 0;
+            free(rs[i]);
+        }
+        CHECK(allok, "4 chats paralelos com LLM = 200");
+        stub_lock();
+        int mx = stub_max;
+        stub_unlock();
+        CHECK(mx <= 2, "teto LLM respeitado no stub");
+    }
+
+    /* --- fase B: stub morto -> fallback local honesto --- */
+    stub_halt();
+    {
+        char *r = t75_call("POST", "/v1/chat/completions", NULL,
+            "{\"model\":\"amanda\",\"messages\":[{\"role\":\"user\",\"content\":\"Qual e a capital?\"}]}");
+        CHECK(r && strstr(r, "Brasilia"), "sem engine: fallback local");
+        CHECK(r && strstr(r, "\"backend\":\"local\""), "fallback informa backend local");
+        free(r);
+    }
+
+    stop = 1;
+    {
+        char *r = t75_call("GET", "/v1/models", NULL, NULL);
+        free(r);
+    }
+#ifdef _WIN32
+    WaitForSingleObject((HANDLE)th, 20000);
+    CloseHandle((HANDLE)th);
+#else
+    pthread_join(th, NULL);
+#endif
+    liberar_package(pkg);
+    g_t75_port = T75_PORT;
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -907,6 +1185,7 @@ int main(void) {
     test_config_templates();
     test_pdf_plus();
     test_serve_75();
+    test_serve_llm();
     test_fase10();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;

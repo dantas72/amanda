@@ -1,5 +1,6 @@
 #include "server.h"
 #include "decision_engine.h"
+#include "laya_backend.h"
 #include "eval.h"
 #include "utils.h"
 #include <stdio.h>
@@ -38,6 +39,11 @@ typedef struct {
     const char *api_key;
     long max_body;
     int eval_max;
+    /* Fase 11 */
+    int backend;
+    char laya_url[256];
+    int laya_timeout_ms;
+    int laya_max;
 } ReqCtx;
 
 /* ============ Fase 7.5: slots de concorrencia (contador com mutex) ============ */
@@ -70,6 +76,39 @@ static void slots_release(void) {
     slots_lock();
     if (g_slots_active > 0) g_slots_active--;
     slots_unlock();
+}
+
+/* Fase 11: slots de inferencia LLM (contador proprio, mesmo padrao). */
+static int g_llm_active = 0;
+
+static int llm_try_acquire(int max) {
+    int ok = 0;
+    slots_lock();
+    if (g_llm_active < max) { g_llm_active++; ok = 1; }
+    slots_unlock();
+    return ok;
+}
+
+static void llm_release(void) {
+    slots_lock();
+    if (g_llm_active > 0) g_llm_active--;
+    slots_unlock();
+}
+
+/* Fase 11: monta cfg hibrida quando ha backend LLM + slot livre.
+   Retorna 1 com *usou_slot = 1 se o chamador deve liberar o slot. */
+static int llm_begin(const ReqCtx *ctx, DecisionConfig *out, int *usou_slot) {
+    *usou_slot = 0;
+    *out = ctx->base;
+    if (ctx->backend != DECISION_BACKEND_LAYA_HTTP) return 0;
+    int max = (ctx->laya_max > 0) ? ctx->laya_max : 2;
+    if (!llm_try_acquire(max)) return 0;
+    *usou_slot = 1;
+    out->backend = DECISION_BACKEND_LAYA_HTTP;
+    if (ctx->laya_url[0])
+        snprintf(out->laya_url, sizeof out->laya_url, "%s", ctx->laya_url);
+    out->laya_timeout_ms = (ctx->laya_timeout_ms > 0) ? ctx->laya_timeout_ms : 60000;
+    return 1;
 }
 
 static char *json_find_string(const char *body, const char *key) {
@@ -224,7 +263,7 @@ static char **parse_inputs(const char *body, int *n_out) {
     return out;
 }
 
-static void send_sse_chat(sock_t fd, const char *answer, float conf, int pg, const char *cors) {
+static void send_sse_chat(sock_t fd, const char *answer, float conf, int pg, const char *cors, const char *backend) {
     if (!cors || !cors[0]) cors = "*";
     char head[640];
     snprintf(head, sizeof head,
@@ -287,12 +326,12 @@ static void send_sse_chat(sock_t fd, const char *answer, float conf, int pg, con
     for (int i = 0; i < nw; i++) free(words[i]);
     free(words);
     buf_free(&piece);
-    char tail[512];
+    char tail[576];
     snprintf(tail, sizeof tail,
         "data: {\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion.chunk\",\"model\":\"amanda\","
         "\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],"
-        "\"amanda\":{\"confianca\":%.3f,\"pagina\":%d}}\n\ndata: [DONE]\n\n",
-        conf, pg);
+        "\"amanda\":{\"confianca\":%.3f,\"pagina\":%d,\"backend\":\"%s\"}}\n\ndata: [DONE]\n\n",
+        conf, pg, (backend && backend[0]) ? backend : "local");
     send_all(fd, tail, strlen(tail));
 }
 
@@ -471,21 +510,29 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
             free(prompt);
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo messages[].content ausente\"}", cors);
         } else {
-            DecisionConfig cfg = *base;
-            float conf = 0; int pg = 0;
-            char *ans = montar_resposta_chat(prompt, pkg->chunks, pkg->num_chunks,
-                                             pkg->embeddings, &cfg, &conf, &pg);
+            /* Fase 11: hibrida quando backend LLM + slot; senao local. */
+            DecisionConfig cfg;
+            int slot = 0;
+            llm_begin(ctx, &cfg, &slot);
+            int via_laya = 0;
+            Decisao *dd = executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
+                                                   pkg->embeddings, &cfg, &via_laya);
+            if (slot) llm_release();
+            const char *bname = via_laya ? "laya-http" : "local";
+            float conf = dd->confianca; int pg = dd->pagina;
+            char *ans = xstrdup(dd->resposta ? dd->resposta : "");
+            liberar_decisao(dd);
             int stream = json_find_bool(bstr, "stream");
             if (stream) {
-                send_sse_chat(fd, ans, conf, pg, cors);
+                send_sse_chat(fd, ans, conf, pg, cors, bname);
             } else {
                 char *esc = json_escape(ans);
                 char *js = (char *)xmalloc(strlen(esc) + 1024);
                 snprintf(js, strlen(esc) + 1024,
                     "{\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion\",\"model\":\"amanda\","
                     "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"%s\"},\"finish_reason\":\"stop\"}],"
-                    "\"amanda\":{\"confianca\":%.3f,\"pagina\":%d}}",
-                    esc, conf, pg);
+                    "\"amanda\":{\"confianca\":%.3f,\"pagina\":%d,\"backend\":\"%s\"}}",
+                    esc, conf, pg, bname);
                 free(esc);
                 send_json(fd, 200, "OK", js, cors);
                 free(js);
@@ -499,15 +546,21 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
             free(prompt);
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo pergunta ausente\"}", cors);
         } else {
-            DecisionConfig cfg = *base;
-            Decisao *d = executar_decisao(prompt, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg);
+            DecisionConfig cfg;
+            int slot = 0;
+            llm_begin(ctx, &cfg, &slot);
+            int via_laya = 0;
+            Decisao *d = executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
+                                                  pkg->embeddings, &cfg, &via_laya);
+            if (slot) llm_release();
             char *esc = json_escape(d->resposta);
             char *escc = json_escape(d->citacao ? d->citacao : "");
             char *js = (char *)xmalloc(strlen(esc) + strlen(escc) + 512);
             snprintf(js, strlen(esc) + strlen(escc) + 512,
-                "{\"resposta\":\"%s\",\"probabilidade\":%.4f,\"confianca\":%.4f,\"pagina\":%d,\"citacao\":\"%s\",\"recusada\":%s}",
+                "{\"resposta\":\"%s\",\"probabilidade\":%.4f,\"confianca\":%.4f,\"pagina\":%d,\"citacao\":\"%s\",\"recusada\":%s,\"backend\":\"%s\"}",
                 esc, d->probabilidade, d->confianca, d->pagina, escc,
-                d->recusada ? "true" : "false");
+                d->recusada ? "true" : "false",
+                via_laya ? "laya-http" : "local");
             free(esc); free(escc);
             liberar_decisao(d);
             free(prompt);
@@ -725,6 +778,19 @@ int server_run(const ServerConfig *cfg) {
     ctx.api_key = cfg->api_key;
     ctx.max_body = max_body;
     ctx.eval_max = eval_max;
+    ctx.backend = (cfg->backend == DECISION_BACKEND_LAYA_HTTP) ? DECISION_BACKEND_LAYA_HTTP : DECISION_BACKEND_LOCAL;
+    if (cfg->laya_url[0])
+        snprintf(ctx.laya_url, sizeof ctx.laya_url, "%s", cfg->laya_url);
+    else
+        snprintf(ctx.laya_url, sizeof ctx.laya_url, "%s", LAYA_URL_DEFAULT);
+    ctx.laya_timeout_ms = (cfg->laya_timeout_ms > 0) ? cfg->laya_timeout_ms : 60000;
+    ctx.laya_max = (cfg->laya_max > 0) ? cfg->laya_max : 2;
+    if (ctx.backend == DECISION_BACKEND_LAYA_HTTP)
+        printf("llm: backend=laya-http url=%s timeout=%dms slots=%d (fallback local automatico)\n",
+               ctx.laya_url, ctx.laya_timeout_ms, ctx.laya_max);
+    else
+        printf("llm: backend=local (use --backend laya-http para inferencia via Laya)\n");
+    fflush(stdout);
 
     for (;;) {
         if (cfg->stop_flag && *cfg->stop_flag) break;

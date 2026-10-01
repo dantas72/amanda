@@ -18,6 +18,16 @@ Cabeçalho limitado a 64KB (`431`), timeout de leitura 30s por conexão.
 Threads: uma por conexão (até `max_conns`); motor local sem estado
 global, seguro para concorrência.
 
+Inferência LLM no `serve` (Fase 11):
+`--backend local|laya-http` (default `local`),
+`--laya-url URL` (default `http://127.0.0.1:8420`),
+`--laya-timeout-ms MS` (default 60000),
+`--laya-max N` (default 2; teto de inferências LLM simultâneas).
+Com `laya-http`, `chat` e `decisions` tentam o engine do Laya sobre o
+grounding local e caem para o motor local em qualquer falha ou sem
+slot livre. Respostas trazem `"backend":"local"` ou `"laya-http"`.
+`embeddings` e `eval` seguem sempre locais.
+
 ## GET /v1/models
 ```json
 {"object":"list","data":[{"id":"amanda","object":"model","owned_by":"amanda","permission":[]}]}
@@ -36,7 +46,7 @@ Resposta:
 ```json
 {"id":"chatcmpl-amanda","object":"chat.completion","model":"amanda",
  "choices":[{"index":0,"message":{"role":"assistant","content":"... (p. 1)"},"finish_reason":"stop"}],
- "amanda":{"confianca":0.93,"pagina":1}}
+ "amanda":{"confianca":0.93,"pagina":1,"backend":"local"}}
 ```
 
 ## POST /v1/chat/completions (streaming SSE)
@@ -70,7 +80,7 @@ data: [DONE]
 ```
 Resposta:
 ```json
-{"resposta":"...","probabilidade":0.91,"confianca":0.91,"pagina":1,"citacao":"...","recusada":false}
+{"resposta":"...","probabilidade":0.91,"confianca":0.91,"pagina":1,"citacao":"...","recusada":false,"backend":"local"}
 ```
 
 ## POST /v1/eval (Fase 7.5)

@@ -77,6 +77,26 @@ Backend opcional `laya-http` com fallback automático para o motor local:
   `ask --backend laya-http` de verdade; senão SKIP honesto com motivo.
   Nunca falha a pipeline.
 
+## Fase 11 — `serve --backend laya-http` (`amandac` 1.0.19+)
+
+Com threads (Fase 7.5), o `serve` pode inferir via Laya sem travar:
+
+```bat
+amandac.exe serve --package livro.amanda --port 8080 --backend laya-http
+```
+
+- Grounding continua local (página/citação/confiança do índice);
+  o Laya redige sobre a citação; resposta ganha `" (via Laya)"`.
+- Qualquer falha (engine fora do ar, timeout `--laya-timeout-ms`,
+  sem modelo ativo) cai para o motor local na hora.
+- `--laya-max N` (default 2) limita inferências simultâneas para
+  proteger o engine; sem slot, a resposta sai local. O campo
+  `"backend"` (`local`/`laya-http`) diz o caminho usado.
+- `POST /v1/embeddings` e `POST /v1/eval` seguem sempre locais.
+- Requer o caminho vivo da Fase 3 (slot chat do Laya apontado p/
+  modelo com provider, ex. nimble no Ollama); senão tudo cai em
+  `local` com honestidade no campo `backend`.
+
 ## Ollama + nimble (verificado em 2026-10-01)
 
 - Ollama em `http://127.0.0.1:11434` com `nimble:latest` (9B Q8,

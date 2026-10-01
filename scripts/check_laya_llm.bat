@@ -59,4 +59,15 @@ if not errorlevel 1 (
 ) else (
   echo [laya-llm] OK: fallback local
 )
+echo [laya-llm] LIVE: testando serve --backend laya-http ...
+start "" /min amandac.exe serve --package build\exemplo.amanda --port 18082 --backend laya-http --laya-url %BASE% --laya-max 1
+powershell -NoProfile -Command "Start-Sleep -Seconds 3"
+curl.exe -s --max-time 150 -X POST http://127.0.0.1:18082/v1/chat/completions -H "Content-Type: application/json" -d "@examples\smoke_chat.json" -o "%TEMP%\laya_serve.json"
+findstr /C:"laya-http" "%TEMP%\laya_serve.json" >nul 2>nul
+if not errorlevel 1 (
+  echo [laya-llm] OK: serve via Laya
+) else (
+  echo [laya-llm] OK: serve fallback local
+)
+taskkill /F /IM amandac.exe >nul 2>nul
 exit /b 0

@@ -117,6 +117,20 @@ curl.exe -s http://127.0.0.1:8080/v1/models
 curl.exe -s -H "Authorization: Bearer TESTE123" http://127.0.0.1:8080/v1/models
 ```
 
+## 5.1 Servir com LLM via Laya (Fase 11)
+
+Exige o engine do Laya em `:8420` com slot chat apontado p/ modelo
+com provider (ver `docs/laya.md`). Sem isso, tudo cai em `local`:
+
+```bat
+amandac.exe serve --package build\cvm.amanda --port 8080 --backend laya-http --laya-max 2
+curl.exe -s -X POST http://127.0.0.1:8080/v1/chat/completions -H "Content-Type: application/json" -d "@examples\smoke_chat.json"
+```
+
+A resposta traz `"backend":"laya-http"` (ou `"local"` no fallback) e,
+no caminho vivo, `" (via Laya)"` no texto. `--laya-max` protege o
+engine; `--laya-timeout-ms` (default 60000) limita cada inferência.
+
 ## 6. Bases gigantes (livro de Direito)
 
 Com 33 mil perguntas, a amostra padrão estoura o tempo. Limite:

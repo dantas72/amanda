@@ -24,6 +24,7 @@ static void print_uso(void) {
     printf("            [--tj-espaco F] [--tj-salto F]\n");
     printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
     printf("                  [--cors ORIGEM] [--api-key CHAVE] [--max-body BYTES] [--max-conns N] [--eval-max N]\n");
+    printf("                  [--backend local|laya-http] [--laya-url URL] [--laya-timeout-ms MS] [--laya-max N]\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N] [--json]\n");
     printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
@@ -243,6 +244,18 @@ static int cmd_serve(int argc, char **argv) {
         if (mb) cfg.max_body = atol(mb);
         if (mc) cfg.max_conns = atoi(mc);
         if (em) cfg.eval_max = atoi(em);
+        /* Fase 11: inferencia LLM no serve */
+        {
+            const char *be = flag_val(argc, argv, "--backend", NULL);
+            const char *lu = flag_val(argc, argv, "--laya-url", NULL);
+            const char *lt = flag_val(argc, argv, "--laya-timeout-ms", NULL);
+            const char *lm = flag_val(argc, argv, "--laya-max", NULL);
+            if (be && (strcmp(be, "laya-http") == 0 || strcmp(be, "laya") == 0))
+                cfg.backend = DECISION_BACKEND_LAYA_HTTP;
+            if (lu) snprintf(cfg.laya_url, sizeof cfg.laya_url, "%s", lu);
+            if (lt) cfg.laya_timeout_ms = atoi(lt);
+            if (lm) cfg.laya_max = atoi(lm);
+        }
     }
     int rc = server_run(&cfg);
     liberar_package(pkg);

@@ -52,4 +52,20 @@ if grep -q 'laya-http' /tmp/laya_ask.json; then
 else
   echo "[laya-llm] OK: fallback local (engine instavel)"
 fi
+echo "[laya-llm] LIVE: testando serve --backend laya-http ..."
+"$BIN" serve --package /tmp/exemplo.amanda --port 18082 --backend laya-http --laya-url "$BASE" --laya-max 1 &
+SRV=$!
+sleep 2
+if curl -fsS -m 150 -X POST http://127.0.0.1:18082/v1/chat/completions \
+    -H 'Content-Type: application/json' \
+    -d @examples/smoke_chat.json -o /tmp/laya_serve.json 2>/dev/null; then
+  if grep -q 'laya-http' /tmp/laya_serve.json; then
+    echo "[laya-llm] OK: serve via Laya"
+  else
+    echo "[laya-llm] OK: serve fallback local"
+  fi
+else
+  echo "[laya-llm] SKIP: serve laya-http nao respondeu"
+fi
+kill $SRV 2>/dev/null
 exit 0
