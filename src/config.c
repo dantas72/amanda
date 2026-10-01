@@ -13,6 +13,8 @@ void config_defaults(AmandaConfig *c) {
     c->max_score = 2;
     c->max_noul = 5;
     c->limiar_recusa = 0.3f;
+    c->tj_espaco = -100.0f;
+    c->tj_salto = 500.0f;
     snprintf(c->author, sizeof c->author, "amandac");
     snprintf(c->lang, sizeof c->lang, "pt-BR");
     snprintf(c->templates_dir, sizeof c->templates_dir, "templates");
@@ -100,6 +102,10 @@ int config_ler(const char *path, AmandaConfig *out, char **erro) {
             out->conf_slope = (float)atof(v);
         } else if (strcmp(secao, "templates") == 0 && strcmp(k, "dir") == 0) {
             set_str(out->templates_dir, sizeof out->templates_dir, v);
+        } else if (strcmp(secao, "extracao") == 0 && strcmp(k, "tj_espaco") == 0) {
+            out->tj_espaco = (float)atof(v); out->tem_extracao = 1;
+        } else if (strcmp(secao, "extracao") == 0 && strcmp(k, "tj_salto") == 0) {
+            out->tj_salto = (float)atof(v); out->tem_extracao = 1;
         } else if (strcmp(secao, "") == 0 && strcmp(k, "titulo") == 0) {
             set_str(out->title, sizeof out->title, v);
         } else if (strcmp(secao, "") == 0 && strcmp(k, "autor") == 0) {

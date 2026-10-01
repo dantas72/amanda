@@ -815,6 +815,82 @@ static void test_serve_75(void) {
     liberar_package(pkg);
 }
 
+/* ============ Fase 10: limiares TJ + teto do eval ============ */
+
+static char *f10_extract(const char *stream_content) {
+    const char *p = "amanda_test_f10.tmp";
+    FILE *f = fopen(p, "wb");
+    if (!f) return NULL;
+    fprintf(f, "%%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n"
+               "2 0 obj\n<< /Length %d >>\nstream\n",
+            (int)strlen(stream_content));
+    fwrite(stream_content, 1, strlen(stream_content), f);
+    fputs("endstream\nendobj\ntrailer\n<< >>\n", f);
+    fclose(f);
+    char *erro = NULL;
+    DocumentoExtraido *d = extrair_pdf(p, &erro);
+    free(erro);
+    remove(p);
+    if (!d) return NULL;
+    char *full = documento_texto_completo(d);
+    liberar_documento(d);
+    return full;
+}
+
+static void test_fase10(void) {
+    printf("[fase10]\n");
+    pdf_tj_config(-100.0f, 500.0f);
+    {
+        char *t = f10_extract("BT [(A) -50 (B)] TJ ET\n");
+        CHECK(t && strstr(t, "AB") != NULL, "tj default: kern -50 junta");
+        free(t);
+    }
+    {
+        char *t = f10_extract("BT [(A) -50 (B)] TJ ET\n");
+        pdf_tj_config(-10.0f, 500.0f);
+        char *t2 = f10_extract("BT [(A) -50 (B)] TJ ET\n");
+        pdf_tj_config(-100.0f, 500.0f);
+        CHECK(t2 && strstr(t2, "A B") != NULL, "tj espaco custom separa");
+        free(t); free(t2);
+    }
+    {
+        char *t = f10_extract("BT [(A) 600 (B)] TJ ET\n");
+        CHECK(t && strstr(t, "A B") != NULL, "tj default: salto 600 separa");
+        free(t);
+        pdf_tj_config(-100.0f, 10000.0f);
+        t = f10_extract("BT [(A) 600 (B)] TJ ET\n");
+        pdf_tj_config(-100.0f, 500.0f);
+        CHECK(t && strstr(t, "AB") != NULL, "tj salto custom junta");
+        free(t);
+    }
+    /* teto do eval: sample 1.0, max 4 -> 4 */
+    {
+        Chunk *ch = (Chunk *)xcalloc(1, sizeof(Chunk));
+        ch[0].texto = xstrdup("A capital do Brasil e Brasilia, inaugurada em 1960. O congresso nacional fica em Brasilia. A cidade tem palacios e monumentos famosos.");
+        ch[0].hash = xstrdup("ffff5555"); ch[0].pagina_inicio = 1; ch[0].pagina_fim = 1; ch[0].num_tokens = 24;
+        Embeddings *e = gerar_embeddings(ch, 1);
+        QuestionGenConfig qc = {2, 2, 6};
+        int nq = 0;
+        PerguntaTipada *qs = gerar_perguntas(ch, 1, &qc, &nq);
+        CHECK(qs && nq >= 5, "perguntas para teto");
+        AmandaPackage pkg;
+        memset(&pkg, 0, sizeof pkg);
+        pkg.chunks = ch; pkg.num_chunks = 1;
+        pkg.embeddings = e; pkg.perguntas = qs; pkg.num_perguntas = nq;
+        EvalConfig cfg;
+        memset(&cfg, 0, sizeof cfg);
+        cfg.sample = 1.0; cfg.seed = 42u; cfg.top_k = 2; cfg.max_amostras = 4;
+        EvalReport r;
+        char *erro = NULL;
+        CHECK(eval_run(&pkg, &cfg, &r, &erro) == 0, "eval com teto ok");
+        CHECK(r.amostradas == 4, "teto limita amostradas");
+        free(erro);
+        liberar_chunks(ch, 1);
+        liberar_embeddings(e);
+        liberar_perguntas(qs, nq);
+    }
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -831,6 +907,7 @@ int main(void) {
     test_config_templates();
     test_pdf_plus();
     test_serve_75();
+    test_fase10();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

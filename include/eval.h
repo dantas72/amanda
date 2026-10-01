@@ -13,6 +13,10 @@ typedef struct {
     float conf_slope;
     float limiar_recusa;
     int tem_limiar;
+    /* Fase 10: teto de amostradas (0 = sem teto). Quando o sorteio
+       excede, usa as primeiras `max_amostras` do embaralhamento
+       (deterministico dado seed) e relata amostradas = teto. */
+    int max_amostras;
 } EvalConfig;
 
 typedef struct {

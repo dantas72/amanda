@@ -66,6 +66,7 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
     int k = (int)floor((double)n * c.sample + 0.5);
     if (k < 1) k = 1;
     if (k > n) k = n;
+    if (c.max_amostras > 0 && k > c.max_amostras) k = c.max_amostras;
     out->amostradas = k;
 
     int *idx = (int *)xmalloc(sizeof(int) * (size_t)n);
@@ -99,6 +100,10 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
     int bin_hit[5] = {0, 0, 0, 0, 0};
 
     for (int s = 0; s < k; s++) {
+        /* Fase 10: progresso em stderr (stdout fica limpo p/ --json) */
+        if (k >= 250 && (s % 250 == 0 || s == k - 1)) {
+            fprintf(stderr, "eval: %d/%d\n", s + 1, k);
+        }
         PerguntaTipada *q = &pkg->perguntas[idx[s]];
         const char *query = q->enunciado ? q->enunciado : "";
         if (q->tipo == TIPO_CHOICE) out->n_choice++;

@@ -21,11 +21,13 @@ static void print_uso(void) {
     printf("Uso:\n");
     printf("  amandac compile --input <arq> --output <arq.amanda> [--title T] [--author A] [--lang pt-BR] [--chunk-words N] [--overlap N]\n");
     printf("            [--config <arq.yaml>] [--templates-dir DIR] [--max-choice N] [--max-score N] [--max-noul N]\n");
+    printf("            [--tj-espaco F] [--tj-salto F]\n");
     printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
     printf("                  [--cors ORIGEM] [--api-key CHAVE] [--max-body BYTES] [--max-conns N] [--eval-max N]\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N] [--json]\n");
     printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
+    printf("                  [--max-amostras N] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
     printf("  amandac calibrate --package <arq.amanda> [--sample 0.5] [--seed 42] [--json]\n");
     printf("  amandac version\n");
     printf("Entradas aceitas: .pdf .txt .csv .json\n");
@@ -123,6 +125,14 @@ static int cmd_compile(int argc, char **argv) {
     if (!input || !output) {
         fprintf(stderr, "compile: --input e --output sao obrigatorios (ou --config com pdf.caminho)\n");
         return 2;
+    }
+    /* Fase 10: limiares TJ (flag > config > padrao -100/+500) */
+    {
+        const char *e = flag_val(argc, argv, "--tj-espaco", NULL);
+        const char *s = flag_val(argc, argv, "--tj-salto", NULL);
+        float esp = e ? (float)atof(e) : (acfg.tem_extracao ? acfg.tj_espaco : -100.0f);
+        float sal = s ? (float)atof(s) : (acfg.tem_extracao ? acfg.tj_salto : 500.0f);
+        pdf_tj_config(esp, sal);
     }
     long long t0 = now_ms();
     char *erro = NULL;
@@ -377,6 +387,10 @@ static int cmd_eval(int argc, char **argv) {
     memset(&cfg, 0, sizeof cfg);
     cfg.sample = sample; cfg.seed = seed; cfg.top_k = topk > 0 ? topk : 3;
     cfg.backend = parse_backend(flag_val(argc, argv, "--backend", "local"));
+    {
+        const char *ma = flag_val(argc, argv, "--max-amostras", NULL);
+        if (ma) cfg.max_amostras = atoi(ma);
+    }
     {
         const char *url = flag_val(argc, argv, "--laya-url", NULL);
         if (url)

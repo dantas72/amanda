@@ -27,3 +27,10 @@
   - [x] 7.6 Release: artefatos CI (`amandac` + `amanda_tests`, win+linux) +
     `inspect --json` (relatório máquina com formato/páginas/perguntas/cobertura).
     Testes 101/101, pipeline com smoke do `--json` e do `POST /v1/eval`.
+- [x] Fase 10 — Robustez extração/eval + guia de uso: limiares TJ configuráveis
+  (`compile --tj-espaco/--tj-salto`, seção `extracao:` no YAML, defaults
+  -100/+500), `eval --max-amostras` (teto determinístico p/ bases gigantes)
+  + progresso em `stderr`, guia `docs/guia_uso.md` (fluxo completo, 1 `.amanda`
+  por livro, serve, troubleshooting), fixtures `smoke_chat/decisions.json`.
+  Testes 108/108. macOS segue fora do CI (falha ARM pré-existente desde 7.2;
+  reativar com diagnóstico em Mac real — sem fingir correção).

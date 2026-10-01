@@ -15,6 +15,9 @@ question_gen:
   max_choice: 3
   max_score: 2
   max_noul: 5
+extracao:
+  tj_espaco: -100.0
+  tj_salto: 500.0
 decision_engine:
   modelo: "retrieval-hibrido"
   limiar_confianca: 0.7

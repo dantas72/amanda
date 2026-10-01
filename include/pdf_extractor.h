@@ -36,4 +36,9 @@ DocumentoExtraido *extrair_json(const char *caminho, char **erro);
 void liberar_documento(DocumentoExtraido *doc);
 char *documento_texto_completo(const DocumentoExtraido *doc);
 
+/* Fase 10: limiares TJ (milésimos de em). Ajuste negativo além de
+   espaco => espaço entre palavras; positivo além de salto => quebra.
+   Defaults: -100.0 / +500.0 (calibrados nos livros CVM/IBRI). */
+void pdf_tj_config(float espaco_neg, float salto_pos);
+
 #endif

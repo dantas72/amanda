@@ -362,6 +362,15 @@ static int zlib_inflate(const unsigned char *in, size_t ilen,
 
 /* ============ PDF text scan (Fase 7.4: operadores + filtros) ============ */
 
+/* Fase 10: limiares TJ ajustaveis (default calibrado nos livros). */
+static float g_tj_espaco = -100.0f;
+static float g_tj_salto = 500.0f;
+
+void pdf_tj_config(float espaco_neg, float salto_pos) {
+    g_tj_espaco = espaco_neg;
+    g_tj_salto = salto_pos;
+}
+
 /* ASCIIHexDecode: ignora whitespace, '>' termina; nibble solitario = *16. */
 static int pdf_ahx_decode(const unsigned char *in, size_t ilen,
                           unsigned char **out, size_t *olen) {
@@ -652,8 +661,9 @@ static void extract_text_from_content(const unsigned char *d, size_t n, ByteBuf 
                 { char nb[64]; size_t nl = j - i < sizeof(nb) - 1 ? j - i : sizeof(nb) - 1;
                   memcpy(nb, d + i, nl); nb[nl] = '\0'; v = atof(nb); }
                 /* TJ: numero muito negativo = espaco entre palavras;
-                   positivo muito grande = salto de coluna/linha */
-                if (v < -100.0 || v > 500.0) {
+                   positivo muito grande = salto de coluna/linha.
+                   Limiares via pdf_tj_config (Fase 10). */
+                if (v < (double)g_tj_espaco || v > (double)g_tj_salto) {
                     if (arr_n == arr_cap) {
                         arr_cap = arr_cap ? arr_cap * 2 : 8;
                         arr = (TJItem *)xrealloc(arr, arr_cap * sizeof(*arr));

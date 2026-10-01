@@ -24,6 +24,10 @@ typedef struct {
     int tem_input;
     int tem_chunk;
     int tem_qg;
+    /* Fase 10: secao extracao (limiares TJ; flag CLI prevalece) */
+    float tj_espaco;
+    float tj_salto;
+    int tem_extracao;
 } AmandaConfig;
 
 void config_defaults(AmandaConfig *c);
