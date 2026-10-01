@@ -1,4 +1,4 @@
-# Amanda — Compilador de Conhecimento em C
+# Amanda — Compilador de Conhecimento para Empresas
 
 [![CI](https://github.com/dantas72/amanda/actions/workflows/ci.yml/badge.svg)](https://github.com/dantas72/amanda/actions)
 
@@ -10,9 +10,13 @@ Repositório: `https://github.com/dantas72/amanda`
 Licença MIT: `LICENSE` (PT-BR), `LICENSE.en` (US English),
 `LICENSE.ru` (RU), `LICENSE.zh` (CN).
 
-Transforma `PDF / TXT / CSV / JSON` em artefato `.amanda` servido
-localmente com API compatível OpenAI — pronto para ser consumido
-por CLIs, OpenCode ou pelo Laya (ver `docs/laya.md`).
+Transforma os documentos da sua operação (`PDF / TXT / CSV / JSON`)
+em artefatos de decisão `.amanda`: cada resposta vem com a fonte e a
+página citada, nível de confiança calibrado e recusa automática fora
+de escopo. Roda 100% local, sem dependência de nuvem, e se integra
+aos seus sistemas por CLI ou API compatível com OpenAI — sozinho ou
+redigindo via LLM (ver `docs/laya.md`). Ideal para compliance,
+jurídico, financeiro e atendimento.
 
 ## Build (Windows)
 ```bat
