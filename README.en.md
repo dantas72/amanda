@@ -24,7 +24,7 @@ for compliance, legal, finance, and customer support.
 ```bat
 build.bat
 ```
-Generates `amandac.exe` and increments `version.bin` (starts at `1.0.1`).
+Generates `amandac.exe` and increments `version.bin` (current version under `## Version` below).
 
 ## Build (Linux/Mac)
 ```sh
@@ -117,3 +117,8 @@ scripts\test_pipeline.bat
 - `tests/` unit tests in C
 - `scripts/` integration pipelines
 - `version.bin` version read by the binary and incremented on every `build.bat`
+
+## Version
+`version.bin` is the source of truth, incremented on every `build.bat`.
+Last local build:
+Build: `1.0.25`

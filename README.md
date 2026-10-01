@@ -24,7 +24,7 @@ jurídico, financeiro e atendimento.
 ```bat
 build.bat
 ```
-Gera `amandac.exe` e incrementa `version.bin` (começa em `1.0.1`).
+Gera `amandac.exe` e incrementa `version.bin` (versão atual em `## Versão` abaixo).
 
 ## Build (Linux/Mac)
 ```sh
@@ -117,3 +117,8 @@ scripts\test_pipeline.bat
 - `tests/` testes unitários em C
 - `scripts/` pipelines de integração
 - `version.bin` versão lida pelo binário e incrementada a cada `build.bat`
+
+## Versão
+`version.bin` é a fonte da verdade, incrementada a cada `build.bat`.
+Último build local:
+Build: `1.0.25`

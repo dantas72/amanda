@@ -22,7 +22,7 @@ MIT 许可证：`LICENSE`（PT-BR）、`LICENSE.en`（US English）、
 ```bat
 build.bat
 ```
-生成 `amandac.exe` 并递增 `version.bin`（从 `1.0.1` 开始）。
+生成 `amandac.exe` 并递增 `version.bin`（当前版本见下文 `## 版本`）。
 
 ## 构建（Linux/Mac）
 ```sh
@@ -111,3 +111,8 @@ scripts\test_pipeline.bat
 - `tests/` C 语言单元测试
 - `scripts/` 集成流水线
 - `version.bin` 由二进制读取、每次 `build.bat` 递增的版本
+
+## 版本
+`version.bin` 是唯一的版本来源，每次 `build.bat` 递增。
+最近一次本地构建：
+Build: `1.0.25`

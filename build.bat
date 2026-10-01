@@ -54,4 +54,18 @@ if errorlevel 1 (
 
 echo [build] OK: amandac.exe (%AVER%)
 amandac.exe version
+
+REM carimba a versao nos READMEs, idempotente, preserva bytes e EOL
+call :stamp_build README.md
+call :stamp_build README.en.md
+call :stamp_build README.ru.md
+call :stamp_build README.zh.md
+
+exit /b 0
+
+:stamp_build
+if not exist "%~1" exit /b 0
+findstr /v /c:"Build: `" "%~1" > "%~1.tmp"
+echo Build: `!AVER!`>> "%~1.tmp"
+move /y "%~1.tmp" "%~1" >nul
 exit /b 0

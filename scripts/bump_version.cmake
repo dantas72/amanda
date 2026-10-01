@@ -38,3 +38,17 @@ file(WRITE "${VER_FILE}" "${NEWVER}\n")
 file(WRITE "${GEN_H}"
   "#ifndef AMANDA_VERSION_GEN_H\n#define AMANDA_VERSION_GEN_H\n#define AMANDA_VERSION_GEN \"${NEWVER}\"\n#endif\n")
 message(STATUS "[version_bump] ${VER} -> ${NEWVER}")
+
+# carimbo Build: nos READMEs, mesma regra do build.bat (troca a linha,
+# preserva o resto byte a byte; sem a linha, nao faz nada)
+foreach(LANG "" ".en" ".ru" ".zh")
+  set(RM "${ROOT}/README${LANG}.md")
+  if(EXISTS "${RM}")
+    file(READ "${RM}" TXT)
+    string(REGEX REPLACE "(^|\n)Build: `[^\n`]*`" "\\1Build: `${NEWVER}`" OUT "${TXT}")
+    if(NOT "${OUT}" STREQUAL "${TXT}")
+      file(WRITE "${RM}" "${OUT}")
+    endif()
+  endif()
+endforeach()
+message(STATUS "[version_bump] READMEs carimbados: ${NEWVER}")
