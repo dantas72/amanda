@@ -6,6 +6,8 @@
 
 Repositório: `https://github.com/dantas72/amanda`
 
+Leia em: [English](README.en.md) · [Русский](README.ru.md) · [中文](README.zh.md)
+
 © 2026 LabsObjects — criado e implementado por Fernando Dantas, Brasil.
 Licença MIT: `LICENSE` (PT-BR), `LICENSE.en` (US English),
 `LICENSE.ru` (RU), `LICENSE.zh` (CN).

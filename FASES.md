@@ -39,3 +39,25 @@
   imediato sem slot), grounding sempre local, campo `"backend"` nas
   respostas, smoke `serve` no `check_laya_llm` (SKIP sem engine).
   Testes 117/117 (stub Laya: vivo, fallback, teto de concorrência).
+  Fix pós-entrega (2026-10-01): `signal(SIGPIPE, SIG_IGN)` em
+  `src/main.c` + `tests/test_all.c` (só POSIX) — stub+serve em threads
+  morria com SIGPIPE no Linux (CI ubuntu exit 8, sem artefato Linux),
+  no Windows passava. Sem o ignore, `send()` em socket fechado mata o
+  processo (inclusive o `serve` em produção); com ele, retorna EPIPE e
+  os erros já tratados cuidam. Cuidado futuro: todo código com sockets
+  precisa passar no Linux (WSL serve p/ reproduzir) — verde só no
+  Windows não prova nada p/ POSIX. Verificado 117/117 no WSL Ubuntu.
+- [x] Pós-11 (2026-10-01, entregas sem nova fase numerada):
+  - Gold sets por livro: `examples/gold_{cvm,ibri,invest,direito}.json`
+    (10 perguntas + `pagina_esperada` cada, curadas contra os
+    `*_t74.amanda`) + `scripts/check_gold.bat` (40/40 PASS, FAIL com
+    exit 1, SKIP sem artefatos). Cuidado: `pagina_esperada` é
+    comportamento observado estável, não verdade auditada — revisar
+    por amostragem antes de tratar como ouro absoluto.
+  - Packs `.tpl` empresariais: `templates/empresas/{compliance,
+    financeiro,juridico,atendimento}/` (mesmos 3 arquivos fixos e
+    variáveis do motor, só wording) + `docs/tutorial_empresas.md`
+    (criar tpl, compilar, comandos, modelos, servidor local/VPS).
+    Cuidado: trocar wording muda scores — sempre `calibrate` depois;
+    nunca editar `templates/question_*.tpl` base.
+  - `README.md` com descrição empresarial do projeto.
