@@ -35,6 +35,8 @@ jobs:
           echo "BIN=$BIN"
           "$BIN" version
           "$BIN" compile --input examples/exemplo.txt --output /tmp/exemplo.amanda --title "Exemplo Amanda"
+          "$BIN" compile --config examples/config.yaml --output /tmp/exemplo_cfg.amanda
+          "$BIN" inspect --package /tmp/exemplo_cfg.amanda --stats
           "$BIN" inspect --package /tmp/exemplo.amanda --stats
           "$BIN" ask --package /tmp/exemplo.amanda "O que e entropia?"
           echo "AMANDAC_BIN=$BIN" >> "$GITHUB_ENV"

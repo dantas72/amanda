@@ -1,5 +1,5 @@
 {
   "tipo": "noul",
-  "enunciado": "Segundo o documento, a afirmação \"{{afirmacao}}\" é verdadeira?",
+  "enunciado": "Segundo o documento, a afirmacao \"{{afirmacao}}\" e verdadeira?",
   "fonte": "pagina {{pagina}}"
 }

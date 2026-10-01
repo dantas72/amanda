@@ -1,5 +1,7 @@
 projeto: "Compilador Amanda"
 versao: "0.1.0"
+titulo: "Exemplo Amanda"
+autor: "amandac"
 pdf:
   caminho: "examples/exemplo.txt"
   idioma: "pt-BR"
@@ -17,6 +19,10 @@ decision_engine:
   modelo: "retrieval-hibrido"
   limiar_confianca: 0.7
   limiar_recusa: 0.3
+  # conf_center: 0.10  # zero = padrao 0.12
+  # conf_slope: 22.0   # zero = padrao 12.0
+templates:
+  dir: "templates"
 servidor:
   porta: 8080
   host: "127.0.0.1"

@@ -22,8 +22,28 @@ typedef struct {
     int max_noul;
 } QuestionGenConfig;
 
+/* Fase 7.3: formatos de enunciado. Vazios = embutidos (comportamento
+   historico). Variaveis: choice {{trecho}} {{pagina}}; score {{trecho}}
+   {{min}} {{max}} {{pagina}}; noul {{afirmacao}} {{pagina}}. */
+typedef struct {
+    char choice[2048];
+    char score[2048];
+    char noul[2048];
+    int ok;
+} QuestionTemplates;
+
+void templates_padrao(QuestionTemplates *t);
+/* Carrega dir/question_{choice,score,noul}.tpl (campo "enunciado" ou o
+   arquivo inteiro como formato). Retorna 1 se ao menos um carregou,
+   0 com fallback silencioso (compilacao nunca falha por template). */
+int carregar_templates(const char *dir, QuestionTemplates *out);
+
 PerguntaTipada *gerar_perguntas(Chunk *chunks, int num_chunks,
-                                const QuestionGenConfig *cfg, int *num_perguntas);
+                                 const QuestionGenConfig *cfg, int *num_perguntas);
+PerguntaTipada *gerar_perguntas_tpl(Chunk *chunks, int num_chunks,
+                                    const QuestionGenConfig *cfg,
+                                    const QuestionTemplates *tpl,
+                                    int *num_perguntas);
 void liberar_perguntas(PerguntaTipada *p, int n);
 const char *tipo_pergunta_str(TipoPergunta t);
 

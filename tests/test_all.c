@@ -13,6 +13,7 @@
 #include "packager.h"
 #include "eval.h"
 #include "calibra.h"
+#include "config.h"
 #include "utils.h"
 
 static int passes = 0, fails = 0;
@@ -351,6 +352,87 @@ static void test_serve_calib(void) {
     liberar_chunks(ch, nc);
 }
 
+static void test_config_templates(void) {
+    printf("[config_templates]\n");
+    const char *yp = "amanda_test_cfg.tmp";
+    FILE *f = fopen(yp, "w");
+    CHECK(f != NULL, "cria yaml temporario");
+    if (f) {
+        fputs("# comentario\nprojeto: \"X\"  # inline\ntitulo: Meu Titulo\n", f);
+        fputs("pdf:\n  caminho: \"examples/exemplo.txt\"\n  idioma: \"pt-BR\"\n", f);
+        fputs("chunking:\n  tamanho_max: 100\n  sobreposicao: 10\n", f);
+        fputs("question_gen:\n  max_choice: 1\n  max_score: 1\n  max_noul: 2\n", f);
+        fputs("decision_engine:\n  limiar_recusa: 0.5\n  chave_desconhecida: 99\n", f);
+        fputs("templates:\n  dir: \"templates\"\n", f);
+        fclose(f);
+    }
+    AmandaConfig ac;
+    char *erro = NULL;
+    int rc = config_ler(yp, &ac, &erro);
+    CHECK(rc == 0, "config_ler ok");
+    if (rc == 0) {
+        CHECK(strcmp(ac.input, "examples/exemplo.txt") == 0, "input com aspas");
+        CHECK(strcmp(ac.title, "Meu Titulo") == 0, "titulo nivel raiz");
+        CHECK(ac.chunk_words == 100 && ac.overlap == 10, "chunking");
+        CHECK(ac.max_choice == 1 && ac.max_noul == 2, "question_gen");
+        CHECK(ac.tem_limiar && fabsf(ac.limiar_recusa - 0.5f) < 1e-6f, "limiar_recusa");
+        CHECK(strcmp(ac.templates_dir, "templates") == 0, "templates dir");
+    } else { printf("  erro: %s\n", erro ? erro : "?"); free(erro); }
+    remove(yp);
+    AmandaConfig dflt;
+    CHECK(config_ler("arquivo-que-nao-existe.yaml", &dflt, &erro) != 0, "ausente = erro");
+    free(erro); erro = NULL;
+
+    /* templates: dir inexistente = fallback silencioso */
+    QuestionTemplates t0;
+    CHECK(carregar_templates("dir-que-nao-existe", &t0) == 0, "dir ausente = fallback");
+    CHECK(t0.choice[0] != '\0' && t0.noul[0] != '\0', "fallback tem embutidos");
+
+    /* templates vivos: arquivos temporarios com marcadores */
+#ifdef _WIN32
+    system("mkdir amanda_test_tpl >nul 2>nul");
+#else
+    system("mkdir -p amanda_test_tpl");
+#endif
+    FILE *t1 = fopen("amanda_test_tpl/question_choice.tpl", "w");
+    FILE *t2 = fopen("amanda_test_tpl/question_score.tpl", "w");
+    FILE *t3 = fopen("amanda_test_tpl/question_noul.tpl", "w");
+    CHECK(t1 && t2 && t3, "cria tpl temporarios");
+    if (t1) { fputs("{\"enunciado\": \"[C:{{trecho}}|p{{pagina}}]\"}", t1); fclose(t1); }
+    if (t2) { fputs("formato solto [S:{{min}}-{{max}}]", t2); fclose(t2); }
+    if (t3) { fputs("{\"enunciado\": \"[N:{{afirmacao}}]\"}", t3); fclose(t3); }
+    QuestionTemplates tv;
+    CHECK(carregar_templates("amanda_test_tpl", &tv) == 1, "carrega 3 tpl");
+    Chunk ch;
+    memset(&ch, 0, sizeof ch);
+    ch.texto = "A fotossintese ocorre nos Cloroplastos das plantas verdes.";
+    ch.hash = "h7654321"; ch.pagina_inicio = 3;
+    QuestionGenConfig qc;
+    memset(&qc, 0, sizeof qc);
+    qc.max_choice = 1; qc.max_score = 1; qc.max_noul = 1;
+    int nq = 0;
+    PerguntaTipada *qs = gerar_perguntas_tpl(&ch, 1, &qc, &tv, &nq);
+    CHECK(qs && nq == 3, "3 perguntas com templates vivos");
+    if (qs && nq == 3) {
+        int fc = 0, fs = 0, fn = 0;
+        for (int i = 0; i < nq; i++) {
+            if (strstr(qs[i].enunciado, "[C:")) fc = 1;
+            if (strstr(qs[i].enunciado, "[S:0-10]")) fs = 1;
+            if (strstr(qs[i].enunciado, "[N:")) fn = 1;
+        }
+        CHECK(fc && fs && fn, "marcadores renderizados por tipo");
+    }
+    liberar_perguntas(qs, nq);
+    remove("amanda_test_tpl/question_choice.tpl");
+    remove("amanda_test_tpl/question_score.tpl");
+    remove("amanda_test_tpl/question_noul.tpl");
+#ifdef _WIN32
+    system("rmdir amanda_test_tpl >nul 2>nul");
+#else
+    system("rmdir amanda_test_tpl");
+#endif
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -364,6 +446,7 @@ int main(void) {
     test_hibrida_fallback();
     test_calibra();
     test_serve_calib();
+    test_config_templates();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

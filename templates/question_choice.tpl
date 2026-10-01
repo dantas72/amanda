@@ -1,6 +1,6 @@
 {
   "tipo": "choice",
-  "enunciado": "Qual é a classificação de {{entidade}} no contexto de {{contexto}}?",
+  "enunciado": "Qual e o elemento central citado no trecho: \"{{trecho}}\"?",
   "opcoes": {{opcoes}},
   "fonte": "pagina {{pagina}}"
 }

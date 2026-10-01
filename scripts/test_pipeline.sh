@@ -6,6 +6,10 @@ BIN=./amandac
 if [ ! -x "$BIN" ] && [ -x ./build/amandac ]; then BIN=./build/amandac; fi
 echo "[1/4] compile..."
 $BIN compile --input examples/exemplo.txt --output /tmp/exemplo.amanda --title "Exemplo Amanda"
+echo "[1b/4] compile via --config..."
+$BIN compile --config examples/config.yaml --output /tmp/exemplo_cfg.amanda
+$BIN inspect --package /tmp/exemplo_cfg.amanda --stats
+rm -f /tmp/exemplo_cfg.amanda
 echo "[2/4] inspect..."
 $BIN inspect --package /tmp/exemplo.amanda --stats
 echo "[3/4] ask..."

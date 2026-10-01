@@ -34,6 +34,7 @@ Windows, Linux e Mac. A etapa Laya é opcional (SKIP sem o engine).
 ## Uso
 ```sh
 amandac compile --input examples/exemplo.txt --output exemplo.amanda
+amandac compile --config examples/config.yaml --output exemplo.amanda
 amandac inspect --package exemplo.amanda --stats
 amandac ask --package exemplo.amanda "O que é entropia?"
 amandac eval --package exemplo.amanda --sample 0.1
@@ -96,7 +97,7 @@ Fase 7 (7.2 serve calibrado, 7.3 config+templates, 7.4 PDF+,
 
 ## Testes
 ```bat
-gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\eval.c src\calibra.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
+gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\eval.c src\calibra.c src\config.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
 scripts\test_pipeline.bat
 ```
 

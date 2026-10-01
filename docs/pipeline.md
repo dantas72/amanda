@@ -1,6 +1,9 @@
-# Pipeline Amanda (Fase 1)
+# Pipeline Amanda (Fases 1–7.3)
 
-1. **Ingestão** — `amandac compile --input doc.(pdf|txt|csv|json)`:
+1. **Ingestão** — `amandac compile --input doc.(pdf|txt|csv|json)`
+   ou `--config projeto.yaml` (subconjunto YAML: `pdf.caminho/idioma`,
+   `chunking`, `question_gen`, `decision_engine`, `templates.dir`,
+   `titulo/autor`; precedência: flag CLI > config > padrão).
    PDF é analisado por parser próprio (streams, FlateDecode/zlib,
    operadores `Tj/TJ`), sem dependências externas. TXT/CSV/JSON têm
    extratores nativos.
@@ -10,15 +13,21 @@
    ponderação log-TF e normalização L2. Determinístico e local.
 4. **Perguntas tipadas** — regras sobre sentenças: `choice` (entidade +
    distratores globais embaralhados), `score` (rubrica 0–10), `noul`
-   (afirmações extraídas como fatos).
+   (afirmações extraídas como fatos). Enunciados renderizados de
+   `templates/question_{choice,score,noul}.tpl` (`{{trecho}}`,
+   `{{afirmacao}}`, `{{min}}`, `{{max}}`, `{{pagina}}`); diretório
+   ausente/ilegível = fallback embutido (byte-idêntico). Personalizar
+   o wording muda os scores — rode `calibrate` depois.
 5. **Empacotamento** — `.amanda` binário com CRC32.
 6. **Serviço** — `amandac serve` expõe API compatível OpenAI
    (`/v1/chat/completions`, `/v1/decisions`, `/v1/models`,
-   `/v1/amanda/info`), com recuperação híbrida
-   (0.6 cosseno + 0.4 sobreposição léxica) e recusa calibrada.
-7. **Validação** — testes unitários em C (`tests/test_all.c`) +
-   pipeline de integração (`scripts/test_pipeline.bat/.sh`).
-8. **Laya (etapa 5/5 da pipeline, opcional)** — `scripts/check_laya.bat`
-   verifica o engine do Laya em `http://127.0.0.1:8420`. Se o Laya
-   estiver instalado e rodando: `OK`. Caso contrário: `SKIP` (não
-   falha a pipeline). Detalhes em `docs/laya.md`.
+   `/v1/amanda/info`, `/v1/embeddings` + SSE), com recuperação híbrida
+   (0.6 cosseno + 0.4 sobreposição léxica), recusa calibrada
+   (`--conf-center/--conf-slope/--limiar-recusa`, Fase 7.2) e backend
+   sempre local.
+7. **Validação** — testes unitários em C (`tests/test_all.c`, 66 checks) +
+   pipeline de integração (`scripts/test_pipeline.bat/.sh`, 8 etapas
+   incluindo `eval`, `calibrate` e compile via `--config`).
+8. **Laya (etapas 7–8/8 da pipeline, opcional)** — `scripts/check_laya.bat`
+   (engine no ar?) e `scripts/check_laya_llm.bat` (backend `laya-http`
+   LIVE ou SKIP honesto). Detalhes em `docs/laya.md`.

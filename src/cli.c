@@ -9,6 +9,7 @@
 #include "server.h"
 #include "eval.h"
 #include "calibra.h"
+#include "config.h"
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@ static void print_uso(void) {
     printf("amandac %s - Compilador de Conhecimento Amanda\n", amanda_version());
     printf("Uso:\n");
     printf("  amandac compile --input <arq> --output <arq.amanda> [--title T] [--author A] [--lang pt-BR] [--chunk-words N] [--overlap N]\n");
+    printf("            [--config <arq.yaml>] [--templates-dir DIR] [--max-choice N] [--max-score N] [--max-noul N]\n");
     printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N]\n");
@@ -72,15 +74,53 @@ static void data_hoje(char *buf, size_t n) {
 }
 
 static int cmd_compile(int argc, char **argv) {
-    const char *input = flag_val(argc, argv, "--input", NULL);
-    const char *output = flag_val(argc, argv, "--output", NULL);
-    const char *title = flag_val(argc, argv, "--title", NULL);
-    const char *author = flag_val(argc, argv, "--author", "amandac");
-    const char *lang = flag_val(argc, argv, "--lang", "pt-BR");
-    int chunk_words = atoi(flag_val(argc, argv, "--chunk-words", "180"));
-    int overlap = atoi(flag_val(argc, argv, "--overlap", "30"));
+    const char *cfg_path = flag_val(argc, argv, "--config", NULL);
+    AmandaConfig acfg;
+    config_defaults(&acfg);
+    if (cfg_path) {
+        char *cerr = NULL;
+        if (config_ler(cfg_path, &acfg, &cerr) != 0) {
+            fprintf(stderr, "compile: %s\n", cerr ? cerr : "?");
+            free(cerr);
+            return 1;
+        }
+    }
+    /* precedencia: flag CLI > config > padrao */
+    const char *f_input = flag_val(argc, argv, "--input", NULL);
+    const char *f_output = flag_val(argc, argv, "--output", NULL);
+    const char *f_title = flag_val(argc, argv, "--title", NULL);
+    const char *f_author = flag_val(argc, argv, "--author", NULL);
+    const char *f_lang = flag_val(argc, argv, "--lang", NULL);
+    const char *f_tpl = flag_val(argc, argv, "--templates-dir", NULL);
+    const char *input = f_input ? f_input : (acfg.tem_input ? acfg.input : NULL);
+    const char *output = f_output ? f_output : NULL;
+    const char *title = f_title ? f_title : (acfg.title[0] ? acfg.title : NULL);
+    const char *author = f_author ? f_author : acfg.author;
+    const char *lang = f_lang ? f_lang : acfg.lang;
+    const char *tpl_dir = f_tpl ? f_tpl : acfg.templates_dir;
+    int chunk_words = acfg.chunk_words;
+    {
+        const char *v = flag_val(argc, argv, "--chunk-words", NULL);
+        if (v) chunk_words = atoi(v);
+    }
+    int overlap = acfg.overlap;
+    {
+        const char *v = flag_val(argc, argv, "--overlap", NULL);
+        if (v) overlap = atoi(v);
+    }
+    QuestionGenConfig qcfg;
+    memset(&qcfg, 0, sizeof qcfg);
+    qcfg.max_choice = acfg.max_choice; qcfg.max_score = acfg.max_score; qcfg.max_noul = acfg.max_noul;
+    {
+        const char *v = flag_val(argc, argv, "--max-choice", NULL);
+        if (v) qcfg.max_choice = atoi(v);
+        v = flag_val(argc, argv, "--max-score", NULL);
+        if (v) qcfg.max_score = atoi(v);
+        v = flag_val(argc, argv, "--max-noul", NULL);
+        if (v) qcfg.max_noul = atoi(v);
+    }
     if (!input || !output) {
-        fprintf(stderr, "compile: --input e --output sao obrigatorios\n");
+        fprintf(stderr, "compile: --input e --output sao obrigatorios (ou --config com pdf.caminho)\n");
         return 2;
     }
     long long t0 = now_ms();
@@ -99,9 +139,20 @@ static int cmd_compile(int argc, char **argv) {
         return 1;
     }
     Embeddings *emb = gerar_embeddings(chunks, nchunks);
-    QuestionGenConfig qcfg = {3, 2, 5};
+    QuestionTemplates tpl;
+    templates_padrao(&tpl);
+    if (tpl_dir && tpl_dir[0]) {
+        QuestionTemplates carregados;
+        if (!carregar_templates(tpl_dir, &carregados)) {
+            if (f_tpl || cfg_path)
+                fprintf(stderr, "compile: aviso: templates nao carregados de '%s' (usando embutidos)\n", tpl_dir);
+        } else {
+            tpl = carregados;
+            printf("compile: templates de '%s'\n", tpl_dir);
+        }
+    }
     int nq = 0;
-    PerguntaTipada *qs = gerar_perguntas(chunks, nchunks, &qcfg, &nq);
+    PerguntaTipada *qs = gerar_perguntas_tpl(chunks, nchunks, &qcfg, &tpl, &nq);
 
     AmandaPackage pkg;
     memset(&pkg, 0, sizeof pkg);

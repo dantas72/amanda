@@ -9,7 +9,7 @@
 - [ ] Fase 7 — Endurecimento e pendências (microfases independentes):
   - [x] 7.1 Docs e higiene: `Projeto.md`/`Jimi.md`/`models/README.md` sincronizados (locais), warning `has_choice` eliminado, `version_bump` no CMake (paridade com `build.bat`).
   - [x] 7.2 Serve calibrado: flags `--conf-center/--conf-slope/--limiar-recusa` no `serve` (backend segue local; LLM-por-request volta na 7.5 com threads).
-  - [ ] 7.3 Config + templates vivos: loader `config.yaml`, `question_gen` via `.tpl`.
+  - [x] 7.3 Config + templates vivos: `compile --config` (YAML subset, CLI > config), `question_gen` renderizando `templates/*.tpl` com fallback embutido (byte-identico), `--templates-dir`, `--max-choice/score/noul`.
   - [ ] 7.4 Extração PDF+: operadores, tolerância, cobertura no `eval`.
   - [ ] 7.5 Servidor robusto: threads, CORS, auth, limites, `POST /v1/eval`.
   - [ ] 7.6 Release: artefatos CI + `inspect --json`.
