@@ -38,3 +38,11 @@ if(UNIX)
   target_link_libraries(amanda_tests m)
 endif()
 add_test(NAME amanda_unit COMMAND amanda_tests)
+
+# Paridade com build.bat (Windows): incrementa version.bin sob demanda.
+# Nao roda no build padrao (CI fica reproduzivel).
+# Uso: cmake --build build --target version_bump
+add_custom_target(version_bump
+  COMMAND ${CMAKE_COMMAND} -P "${CMAKE_SOURCE_DIR}/scripts/bump_version.cmake"
+  COMMENT "Incrementando version.bin"
+  VERBATIM)

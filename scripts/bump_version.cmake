@@ -1,0 +1,40 @@
+# bump_version.cmake — incrementa version.bin (patch+1) e regenera
+# include/version_gen.h. Portatil: cmake -P scripts/bump_version.cmake
+# (Alvo CMake: cmake --build build --target version_bump)
+
+set(ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
+set(VER_FILE "${ROOT}/version.bin")
+set(GEN_H "${ROOT}/include/version_gen.h")
+
+if(EXISTS "${VER_FILE}")
+  file(READ "${VER_FILE}" VER)
+  string(STRIP "${VER}" VER)
+else()
+  set(VER "1.0.1")
+endif()
+
+string(REPLACE "." ";" PARTS "${VER}")
+list(LENGTH PARTS N)
+if(N LESS 3)
+  set(VER "1.0.1")
+  string(REPLACE "." ";" PARTS "${VER}")
+endif()
+list(GET PARTS 0 MAJ)
+list(GET PARTS 1 MIN)
+list(GET PARTS 2 PAT)
+if(NOT MAJ MATCHES "^[0-9]+$")
+  set(MAJ 1)
+endif()
+if(NOT MIN MATCHES "^[0-9]+$")
+  set(MIN 0)
+endif()
+if(NOT PAT MATCHES "^[0-9]+$")
+  set(PAT 1)
+endif()
+math(EXPR PAT "${PAT} + 1")
+set(NEWVER "${MAJ}.${MIN}.${PAT}")
+
+file(WRITE "${VER_FILE}" "${NEWVER}\n")
+file(WRITE "${GEN_H}"
+  "#ifndef AMANDA_VERSION_GEN_H\n#define AMANDA_VERSION_GEN_H\n#define AMANDA_VERSION_GEN \"${NEWVER}\"\n#endif\n")
+message(STATUS "[version_bump] ${VER} -> ${NEWVER}")

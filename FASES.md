@@ -6,3 +6,10 @@
 - [x] Fase 4 — Servidor SSE + `/v1/embeddings`: `stream:true` retorna `text/event-stream` com deltas + `data: [DONE]`; `POST /v1/embeddings` (string ou array, 384 floats, formato OpenAI); fixtures `examples/smoke_*.json`; smoke no CI e na pipeline `.bat/.sh`.
 - [x] Fase 5 — Calibração com validação em 10% das perguntas + métricas (fidelidade/calibração/latência/recusa).
 - [x] Fase 6 — Recalibração: `amandac calibrate` (grade centro/inclinação/limiar sobre amostra + probes, maximiza acurácia balanceada), motor com sigmoide parametrizável (`--conf-center/--conf-slope/--limiar-recusa` em `ask`/`eval`, zeros = padrão histórico), etapa na pipeline + CI.
+- [ ] Fase 7 — Endurecimento e pendências (microfases independentes):
+  - [x] 7.1 Docs e higiene: `Projeto.md`/`Jimi.md`/`models/README.md` sincronizados (locais), warning `has_choice` eliminado, `version_bump` no CMake (paridade com `build.bat`).
+  - [ ] 7.2 Serve calibrado: flags de calibração/backend no `serve`.
+  - [ ] 7.3 Config + templates vivos: loader `config.yaml`, `question_gen` via `.tpl`.
+  - [ ] 7.4 Extração PDF+: operadores, tolerância, cobertura no `eval`.
+  - [ ] 7.5 Servidor robusto: threads, CORS, auth, limites, `POST /v1/eval`.
+  - [ ] 7.6 Release: artefatos CI + `inspect --json`.

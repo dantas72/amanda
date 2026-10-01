@@ -19,6 +19,7 @@ Gera `amandac.exe` e incrementa `version.bin` (começa em `1.0.1`).
 ## Build (Linux/Mac)
 ```sh
 cmake -S . -B build && cmake --build build
+cmake --build build --target version_bump   # paridade com build.bat (incrementa version.bin)
 ```
 
 ## CI

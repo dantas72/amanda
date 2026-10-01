@@ -64,7 +64,7 @@ static void test_question_gen(void) {
     printf("[question_gen]\n");
     Chunk ch;
     memset(&ch, 0, sizeof ch);
-    ch.texto = "A fotossintese ocorre nos cloroplastos das plantas. A clorofila absorve luz solar. A glicose e produzida a partir de agua e dioxido de carbono.";
+    ch.texto = "A fotossintese ocorre nos Cloroplastos das plantas. A clorofila absorve luz solar. A glicose e produzida a partir de agua e dioxido de carbono.";
     ch.hash = "h1234567"; ch.pagina_inicio = 2;
     QuestionGenConfig cfg = {3, 2, 5};
     int nq = 0;
@@ -78,6 +78,7 @@ static void test_question_gen(void) {
     }
     CHECK(has_noul, "gera noul");
     CHECK(has_score, "gera score");
+    CHECK(has_choice, "gera choice");
     liberar_perguntas(qs, nq);
 }
 
