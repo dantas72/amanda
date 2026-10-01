@@ -97,14 +97,45 @@ amandac.exe serve --package livro.amanda --port 8080 --backend laya-http
   modelo com provider, ex. nimble no Ollama); senão tudo cai em
   `local` com honestidade no campo `backend`.
 
-## Ollama + nimble (verificado em 2026-10-01)
+## Teste vivo com engine real + nimble (2026-10-01, sessão documentada)
+
+Ambiente: Ollama `:11434` com `nimble:latest` (9B Q8, 10GB) no ar;
+engine Laya `:8420` saudável (sqlite/chromadb/n8n ok); GPU GeForce
+MX250 2GB (1813 MiB livres).
+
+Achados:
+
+1. Slot `chat` estava em `claude-sonnet-4-6` sem chave Anthropic →
+   `/chat` devolvia a string de erro padrão. Corrigido via
+   `PUT /settings {"models":{"chat":"localollama/nimble:latest"}}`
+   (deep merge; verificado no `GET /settings` seguinte).
+2. `/chat` vivo **não respondeu em 280s nem em 480s** (curl 28).
+   Causa: nimble com só 173MB em VRAM (~98% em CPU) + pipeline RAG
+   do Laya + `llm_retries:3` sobre provider `default_timeout:120`.
+   Ollama direto (`/api/generate`, prompt mínimo) também não
+   respondeu em 240s. Gargalo é hardware, não integração.
+3. **Fallback com engine real provado**: `serve --backend laya-http
+   --laya-timeout-ms 20000` respondeu rápido com resposta local
+   correta (`"backend":"local"`, conf 0.993, p. 1).
+4. Caminho vivo segue coberto pelos testes com stub (Fase 11,
+   117/117): mesma `laya_chat`, mesmo `/chat`, mesma extração de
+   `content`.
+
+### Testes futuros (caminho vivo real)
+
+- [ ] Modelo pequeno em CPU (ex. `ollama pull llama3.2:3B`) e
+  repetir `scripts\check_laya_llm.bat` (cobre `ask` + `serve` vivos).
+- [ ] GPU com 10GB+ VRAM (offload total do nimble) e repetir o
+  teste vivo ponta a ponta; medir latência chat/decisions.
+- [ ] Se o slot `chat` voltar a apontar p/ nuvem sem chave, o
+  sintoma é a string de erro no `/chat` → fallback local honesto
+  (ver § Ollama + nimble). Não é regressão do Amanda.
+- [ ] Reativar `macos-latest` no CI com diagnóstico em Mac real
+  (falha ARM pré-existente desde 7.2; ver guia § 9).
+
+## Ollama + nimble (base, verificado em 2026-10-01)
 
 - Ollama em `http://127.0.0.1:11434` com `nimble:latest` (9B Q8,
   Qwen, 262k ctx). Laya lista `localollama`/`ollamaserver` como
   custom providers (`base_url http://localhost:11434`).
-- Atenção: o slot **chat** do Laya pode apontar para um modelo de
-  nuvem sem chave (ex. `claude-sonnet-4-6`) — nesse caso o `/chat`
-  retorna a string de erro e o backend cai para local (SKIP honesto).
-  Para o caminho vivo, aponte o slot chat para o nimble no Settings
-  do Laya. `setup_complete:false` também foi observado sem impedir
-  o uso.
+- `setup_complete:false` foi observado sem impedir o uso.
