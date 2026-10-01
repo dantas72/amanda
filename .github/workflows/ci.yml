@@ -42,6 +42,7 @@ jobs:
           "$BIN" inspect --package /tmp/exemplo_cfg.amanda --stats
           "$BIN" inspect --package /tmp/exemplo.amanda --stats
           "$BIN" ask --package /tmp/exemplo.amanda "O que e entropia?"
+          "$BIN" inspect --package /tmp/exemplo.amanda --json | grep -q '"chunks"'
           echo "AMANDAC_BIN=$BIN" >> "$GITHUB_ENV"
 
       - name: Eval (Fase 5 - calibracao)
@@ -85,3 +86,13 @@ jobs:
       - name: Laya LLM backend check (Fase 3, optional, never fails)
         shell: bash
         run: sh scripts/check_laya_llm.sh || true
+
+      - name: Release artifacts (Fase 7.6)
+        uses: actions/upload-artifact@v4
+        with:
+          name: amandac-${{ matrix.os }}
+          path: |
+            build/amandac
+            build/amanda_tests
+            build/Release/amandac.exe
+            build/Release/amanda_tests.exe

@@ -156,6 +156,11 @@ static void test_packager(void) {
     if (back) {
         CHECK(back->num_chunks == 2, "roundtrip preserva chunks");
         CHECK(strcmp(back->chunks[0].texto, "chunk um sobre entropia") == 0, "texto intacto");
+        char *sj = package_stats_json(back);
+        CHECK(sj && strstr(sj, "\"chunks\":2") != NULL, "inspect json tem chunks");
+        CHECK(sj && strstr(sj, "\"formato\":2") != NULL, "inspect json tem formato");
+        CHECK(sj && strstr(sj, "\"extracao\"") != NULL, "inspect json tem extracao");
+        free(sj);
         liberar_package(back);
     }
     remove(tmp);

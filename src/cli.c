@@ -24,7 +24,7 @@ static void print_uso(void) {
     printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
     printf("                  [--cors ORIGEM] [--api-key CHAVE] [--max-body BYTES] [--max-conns N] [--eval-max N]\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
-    printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N]\n");
+    printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N] [--json]\n");
     printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("  amandac calibrate --package <arq.amanda> [--sample 0.5] [--seed 42] [--json]\n");
     printf("  amandac version\n");
@@ -319,6 +319,13 @@ static int cmd_inspect(int argc, char **argv) {
         fprintf(stderr, "inspect: %s\n", erro ? erro : "?");
         free(erro);
         return 1;
+    }
+    if (flag_bool(argc, argv, "--json")) {
+        char *j = package_stats_json(pkg);
+        printf("%s\n", j);
+        free(j);
+        liberar_package(pkg);
+        return 0;
     }
     char st[2048];
     package_stats(pkg, st, sizeof st);

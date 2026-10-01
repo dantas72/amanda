@@ -30,5 +30,7 @@ int empacotar_amanda(AmandaPackage *pkg, const char *saida, char **erro);
 AmandaPackage *carregar_amanda(const char *caminho, char **erro);
 void liberar_package(AmandaPackage *pkg);
 int package_stats(const AmandaPackage *pkg, char *buf, size_t bufsz);
+/* Fase 7.6: relatorio maquina (malloc; liberar com free). */
+char *package_stats_json(const AmandaPackage *pkg);
 
 #endif

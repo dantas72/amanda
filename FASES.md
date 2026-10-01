@@ -24,4 +24,6 @@
     (`--max-body` = 413, header 64KB = 431, recv timeout 30s),
     `POST /v1/eval` (sample/seed/top_k, teto `--eval-max` = 400 honesto).
     Testes 98/98 (suite `serve_75` com sockets reais: 401/413/CORS/eval/concorrência).
-  - [ ] 7.6 Release: artefatos CI + `inspect --json`.
+  - [x] 7.6 Release: artefatos CI (`amandac` + `amanda_tests`, win+linux) +
+    `inspect --json` (relatório máquina com formato/páginas/perguntas/cobertura).
+    Testes 101/101, pipeline com smoke do `--json` e do `POST /v1/eval`.

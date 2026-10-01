@@ -29,13 +29,16 @@ cmake --build build --target version_bump   # paridade com build.bat (incrementa
 ## CI
 GitHub Actions (`.github/workflows/ci.yml`): build + testes unitários
 (`ctest`) + integração (`compile`/`inspect`/`ask`/serve smoke) em
-Windows, Linux e Mac. A etapa Laya é opcional (SKIP sem o engine).
+Windows e Linux (macOS temporariamente fora; ver Fase 7.5), com
+artefatos `amandac` + `amanda_tests` por release de CI (Fase 7.6).
+A etapa Laya é opcional (SKIP sem o engine).
 
 ## Uso
 ```sh
 amandac compile --input examples/exemplo.txt --output exemplo.amanda
 amandac compile --config examples/config.yaml --output exemplo.amanda
 amandac inspect --package exemplo.amanda --stats
+amandac inspect --package exemplo.amanda --json   # relatório máquina (Fase 7.6)
 amandac ask --package exemplo.amanda "O que é entropia?"
 amandac eval --package exemplo.amanda --sample 0.1
 amandac serve --package exemplo.amanda --port 8080

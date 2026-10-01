@@ -226,3 +226,42 @@ int package_stats(const AmandaPackage *pkg, char *buf, size_t bufsz) {
         pkg->extra_total_streams, pkg->extra_text_streams,
         pkg->extra_failed, pkg->extra_fallback ? "sim" : "nao");
 }
+
+char *package_stats_json(const AmandaPackage *pkg) {
+    ByteBuf b;
+    buf_init(&b);
+    size_t total_chars = 0;
+    for (int i = 0; i < pkg->num_chunks; i++)
+        if (pkg->chunks[i].texto) total_chars += strlen(pkg->chunks[i].texto);
+    int nchoice = 0, nscore = 0, nnoul = 0;
+    for (int i = 0; i < pkg->num_perguntas; i++) {
+        if (pkg->perguntas[i].tipo == TIPO_CHOICE) nchoice++;
+        else if (pkg->perguntas[i].tipo == TIPO_SCORE) nscore++;
+        else nnoul++;
+    }
+    char *t = json_escape(pkg->titulo ? pkg->titulo : "");
+    char *a = json_escape(pkg->autor ? pkg->autor : "");
+    char *d = json_escape(pkg->data ? pkg->data : "");
+    char *l = json_escape(pkg->idioma ? pkg->idioma : "pt-BR");
+    char *v = json_escape(pkg->versao_app ? pkg->versao_app : "");
+    char tmp[2048];
+    snprintf(tmp, sizeof tmp,
+        "{\"titulo\":\"%s\",\"autor\":\"%s\",\"data\":\"%s\",\"idioma\":\"%s\","
+        "\"versao_app\":\"%s\",\"formato\":%u,"
+        "\"paginas\":%d,\"blocos\":%d,\"chunks\":%d,"
+        "\"perguntas\":{\"total\":%d,\"choice\":%d,\"score\":%d,\"noul\":%d},"
+        "\"dimensao_embedding\":%d,\"total_caracteres\":%llu,"
+        "\"extracao\":{\"streams\":%d,\"streams_texto\":%d,\"falhas\":%d,\"fallback\":%s}}",
+        t, a, d, l, v, AMANDA_FORMAT_VERSION,
+        pkg->num_paginas, pkg->extra_blocos, pkg->num_chunks,
+        pkg->num_perguntas, nchoice, nscore, nnoul,
+        pkg->embeddings ? pkg->embeddings->dimensao : 0,
+        (unsigned long long)total_chars,
+        pkg->extra_total_streams, pkg->extra_text_streams,
+        pkg->extra_failed, pkg->extra_fallback ? "true" : "false");
+    free(t); free(a); free(d); free(l); free(v);
+    buf_append_cstr(&b, tmp);
+    buf_reserve(&b, 1);
+    b.data[b.len] = '\0';
+    return (char *)b.data;
+}

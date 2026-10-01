@@ -12,6 +12,7 @@ $BIN inspect --package /tmp/exemplo_cfg.amanda --stats
 rm -f /tmp/exemplo_cfg.amanda
 echo "[2/4] inspect..."
 $BIN inspect --package /tmp/exemplo.amanda --stats
+$BIN inspect --package /tmp/exemplo.amanda --json | grep -q '"chunks"'
 echo "[3/4] ask..."
 $BIN ask --package /tmp/exemplo.amanda "O que e entropia?"
 echo "[4/4] serve (smoke)..."

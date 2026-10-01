@@ -14,6 +14,9 @@ amandac.exe inspect --package build\exemplo_cfg.amanda --stats || exit /b 1
 del build\exemplo_cfg.amanda
 echo [2/4] inspect...
 amandac.exe inspect --package build\exemplo.amanda --stats || exit /b 1
+amandac.exe inspect --package build\exemplo.amanda --json > "%TEMP%\amanda_inspect.json" || exit /b 1
+powershell -NoProfile -Command "$t = Get-Content $env:TEMP\amanda_inspect.json -Raw; if (-not $t.Contains('chunks')) { Write-Host 'inspect-json: SEM chunks'; exit 1 } else { Write-Host 'inspect-json: OK' }"
+if errorlevel 1 ( exit /b 1 )
 echo [3/4] ask...
 amandac.exe ask --package build\exemplo.amanda "O que e entropia?" || exit /b 1
 echo [4/4] serve (smoke 5s na porta 18080)...
