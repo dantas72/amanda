@@ -123,8 +123,10 @@ Achados:
 
 ### Testes futuros (caminho vivo real)
 
-- [ ] Modelo pequeno em CPU (ex. `ollama pull llama3.2:3B`) e
-  repetir `scripts\check_laya_llm.bat` (cobre `ask` + `serve` vivos).
+- [x] Modelo pequeno em CPU (2026-10-01): `ollama pull llama3.2:3B`
+  (3.2B Q4, 2GB) + `scripts\check_laya_llm.bat` → `ask` e `serve`
+  via Laya OK (`"backend":"laya-http"`, `(via Laya)`). Ver § teste
+  vivo llama3.2:3B.
 - [ ] GPU com 10GB+ VRAM (offload total do nimble) e repetir o
   teste vivo ponta a ponta; medir latência chat/decisions.
 - [ ] Se o slot `chat` voltar a apontar p/ nuvem sem chave, o
@@ -132,6 +134,25 @@ Achados:
   (ver § Ollama + nimble). Não é regressão do Amanda.
 - [ ] Reativar `macos-latest` no CI com diagnóstico em Mac real
   (falha ARM pré-existente desde 7.2; ver guia § 9).
+
+## Teste vivo com llama3.2:3B (2026-10-01, primeiro LLM vivo ponta a ponta)
+
+- Ollama direto: `POST /api/generate` (`llama3.2:3B`, prompt mínimo,
+  `stream:false`) respondeu em ~23s (17s load) — CPU OK.
+- Engine do Laya estava fora do ar (sem listener em `:8420`); subido
+  via `laya-app.exe`. No boot, os slots foram para
+  `ollama/llama3.2:3B` (antes `localollama/nimble:latest`).
+- `ask --backend laya-http` → `"backend":"laya-http"`, `(via Laya)`,
+  conf 0.9935, p. 1. `serve --backend laya-http` → idem, conf 0.993.
+  O nimble nunca respondeu nesta máquina (MX250 2GB).
+- Bug achado no gate do `scripts\check_laya_llm.bat`: `findstr /C:`
+  trata o padrão como literal, então o regex nunca casava e o script
+  sempre dava SKIP com o engine no ar. Trocado por dois literais
+  (`"providers":[]` vazio = SKIP; `{"id":` ausente = SKIP),
+  espelhando o `grep` do `.sh` (que estava correto). Revalidado:
+  `LIVE + OK via Laya` no `ask`; o `serve` caiu em fallback local
+  honesto uma vez com o engine sob contenção e passou via Laya na
+  repetição com o engine ocioso.
 
 ## Ollama + nimble (base, verificado em 2026-10-01)
 

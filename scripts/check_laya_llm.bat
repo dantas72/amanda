@@ -30,9 +30,14 @@ if errorlevel 1 (
   echo [laya-llm] SKIP: sem resposta de available-models
   exit /b 0
 )
-findstr /R /C:"\"models\": *\[[^]]" "%TEMP%\laya_p.json" >nul 2>nul
-if errorlevel 1 (
+findstr /C:"\"providers\":[]" "%TEMP%\laya_p.json" >nul 2>nul
+if not errorlevel 1 (
   echo [laya-llm] SKIP: engine sem provider LLM
+  exit /b 0
+)
+findstr /C:"{\"id\":" "%TEMP%\laya_p.json" >nul 2>nul
+if errorlevel 1 (
+  echo [laya-llm] SKIP: providers sem modelos
   exit /b 0
 )
 
