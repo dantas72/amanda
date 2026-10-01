@@ -39,6 +39,17 @@ typedef struct {
     int pass_latencia;
     int via_laya;
     int via_local;
+    /* Fase 7.4: cobertura da extracao (derivada do pacote v2) */
+    int cov_paginas;
+    int cov_blocos;
+    int cov_chunks;
+    long long cov_chars;
+    double cov_chars_por_pag;
+    double cov_perg_por_chunk;
+    int cov_total_streams;
+    int cov_text_streams;
+    int cov_failed;
+    int cov_fallback;
 } EvalReport;
 
 int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **erro);

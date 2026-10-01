@@ -67,3 +67,26 @@ Nota honesta: o ótimo cai em limiar alto (0.90) com slope íngreme —
 separa perfeitamente estes pacotes, mas perguntas in-scope limítrofes
 futuras podem recusar mais. O `calibrate` imprime TPR/TNR para auditar;
 rode `eval` com os parâmetros antes de adotar.
+
+## Fase 7.4 — Extração PDF+ e cobertura no `eval` (`amandac 1.0.15`)
+
+Correção raiz: o inflate dinâmico próprio violava a RFC 1951
+(`bl_count[0]` participava do código canônico) e falhava em ~95% dos
+streams reais; com a correção + filtros em cadeia + operadores, as
+falhas zeraram e o volume extraído multiplicou (CVM: 12 → 448 blocos).
+
+O `eval` (texto e `--json` via objeto `cobertura`) agora reporta:
+páginas, blocos, chunks, chars totais, chars/página, perguntas/chunk,
+streams totais/de texto, falhas e fallback.
+
+Resultados com extração completa (`eval --sample 0.1/0.2`):
+
+| pacote | blocos/páginas | perguntas | fidelidade | gap/ECE | lat média | recusa probe |
+|---|---|---|---|---|---|---|
+| cvm_valores_mobiliarios | 448/412 | 5320 | 86.3% | 0.129 | 26.8 ms PASS | 0/3 |
+| ibri_cvm | 178/161 | 2415 | 89.7% | 0.097 | 12.4 ms PASS | 0/3 |
+| top_analise_investimentos | 253/260 | 2498 | 89.8% | 0.094 | 12.7 ms PASS | 0/3 |
+| top_direito | 1393/1348 | 33218 | (amostra 1% p/ tempo) | — | PASS | — |
+
+Fechamento do loop (CVM, `calibrate --sample 0.2` → 0.450/26.0/0.70):
+bal **0.500 → 0.950** (TPR 0.90/TNR 1.00).

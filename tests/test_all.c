@@ -433,6 +433,150 @@ static void test_config_templates(void) {
 #endif
 }
 
+static void test_pdf_plus(void) {
+    printf("[pdf_plus]\n");
+    /* 1. TJ com espacamento + ' com quebra */
+    {
+        const char *p = "amanda_test_pdf_tj.tmp";
+        FILE *f = fopen(p, "wb");
+        CHECK(f != NULL, "cria pdf tj temporario");
+        if (f) {
+            const char *stream = "BT /F1 12 Tf [(Ola) -250 (mundo)] TJ ET\n"
+                                 "BT (linha um) ' (linha dois) ' ET\n"
+                                 "BT [(H)-20 (e)15 (llo)] TJ ET\n";
+            fprintf(f, "%%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n"
+                       "2 0 obj\n<< /Length %d >>\nstream\n", (int)strlen(stream));
+            fwrite(stream, 1, strlen(stream), f);
+            fputs("endstream\nendobj\ntrailer\n<< >>\n", f);
+            fclose(f);
+        }
+        char *erro = NULL;
+        DocumentoExtraido *d = extrair_pdf(p, &erro);
+        CHECK(d && d->num_blocos >= 1, "tj extrai blocos");
+        if (d) {
+            char *full = documento_texto_completo(d);
+            CHECK(full && strstr(full, "Ola") && strstr(full, "mundo"), "tj com espaco preserva palavras");
+            CHECK(full && strstr(full, "linha um") && strstr(full, "linha dois"), "' extrai duas linhas");
+            CHECK(full && strstr(full, "Hello") != NULL, "tj concatena fragmentos com kerning");
+            CHECK(d->stats.text_streams >= 1, "stats contam streams de texto");
+            free(full);
+            liberar_documento(d);
+        } else { printf("  erro: %s\n", erro ? erro : "?"); free(erro); }
+        remove(p);
+    }
+    /* 2. ASCIIHexDecode via cadeia /Filter */
+    {
+        const char *p = "amanda_test_pdf_ahx.tmp";
+        const char *plain = "BT (Ola HexAqui) Tj ET";
+        FILE *f = fopen(p, "wb");
+        CHECK(f != NULL, "cria pdf ahx temporario");
+        if (f) {
+            fprintf(f, "%%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n"
+                       "2 0 obj\n<< /Length 999 /Filter /ASCIIHexDecode >>\nstream\n");
+            for (const char *q = plain; *q; q++) fprintf(f, "%02X", (unsigned char)*q);
+            fputs(">\nendstream\nendobj\ntrailer\n<< >>\n", f);
+            fclose(f);
+        }
+        char *erro = NULL;
+        DocumentoExtraido *d = extrair_pdf(p, &erro);
+        CHECK(d != NULL, "ahx decodifica");
+        if (d) {
+            char *full = documento_texto_completo(d);
+            CHECK(full && strstr(full, "Ola HexAqui"), "ahx preserva texto");
+            free(full);
+            liberar_documento(d);
+        } else { printf("  erro: %s\n", erro ? erro : "?"); free(erro); }
+        remove(p);
+    }
+    /* 3. ASCII85Decode gerado em runtime + tolerancia a stream quebrada */
+    {
+        const char *p = "amanda_test_pdf_a85.tmp";
+        const char *plain = "BT (Ola A85Vivo) Tj ET";
+        /* codifica ASCII85 aqui para nao depender de vetor fixo */
+        char enc[1024]; size_t epos = 0;
+        size_t plen = strlen(plain);
+        for (size_t k = 0; k < plen; k += 4) {
+            unsigned int tup = 0;
+            int nb = 0;
+            for (int b = 0; b < 4; b++) {
+                tup <<= 8;
+                if (k + (size_t)b < plen) { tup |= (unsigned char)plain[k + b]; nb++; }
+            }
+            if (nb == 4 && tup == 0) { enc[epos++] = 'z'; }
+            else {
+                char grp[5];
+                for (int b = 4; b >= 0; b--) { grp[b] = (char)(tup % 85u + '!'); tup /= 85u; }
+                for (int b = 0; b < nb + 1; b++) enc[epos++] = grp[b];
+            }
+        }
+        enc[epos] = '\0';
+        FILE *f = fopen(p, "wb");
+        CHECK(f != NULL, "cria pdf a85 temporario");
+        if (f) {
+            const char *good_fmt = "%%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n"
+                "2 0 obj\n<< /Length 999 /Filter /ASCII85Decode >>\nstream\n%s~>\nendstream\nendobj\n";
+            fprintf(f, good_fmt, enc);
+            /* stream quebrada com FlateDecode invalido: deve ser tolerada */
+            fputs("3 0 obj\n<< /Length 20 /Filter /FlateDecode >>\nstream\n", f);
+            fwrite("isto-nao-e-deflate-valido", 1, 26, f);
+            fputs("\nendstream\nendobj\ntrailer\n<< >>\n", f);
+            fclose(f);
+        }
+        char *erro = NULL;
+        DocumentoExtraido *d = extrair_pdf(p, &erro);
+        CHECK(d != NULL, "a85 + stream quebrada tolerada");
+        if (d) {
+            char *full = documento_texto_completo(d);
+            CHECK(full && strstr(full, "Ola A85Vivo"), "a85 preserva texto");
+            CHECK((d->stats.failed_inflate + d->stats.failed_decode) >= 1, "falha contabilizada");
+            free(full);
+            liberar_documento(d);
+        } else { printf("  erro: %s\n", erro ? erro : "?"); free(erro); }
+        remove(p);
+    }
+    /* 4. cobertura chega ao eval json */
+    {
+        Chunk *ch = (Chunk *)xcalloc(1, sizeof(Chunk));
+        ch[0].texto = xstrdup("cobertura de extracao com pagina e streams");
+        ch[0].hash = xstrdup("cccc3333"); ch[0].pagina_inicio = 1; ch[0].pagina_fim = 2; ch[0].num_tokens = 6;
+        Embeddings *e = gerar_embeddings(ch, 1);
+        QuestionGenConfig qc = {1, 1, 1};
+        int nq = 0;
+        PerguntaTipada *qs = gerar_perguntas(ch, 1, &qc, &nq);
+        AmandaPackage pkg;
+        memset(&pkg, 0, sizeof pkg);
+        pkg.titulo = xstrdup("cob"); pkg.autor = xstrdup("t");
+        pkg.data = xstrdup("2026-10-01"); pkg.idioma = xstrdup("pt-BR");
+        pkg.versao_app = xstrdup("1.0.11");
+        pkg.chunks = ch; pkg.num_chunks = 1;
+        pkg.embeddings = e; pkg.perguntas = qs; pkg.num_perguntas = nq;
+        pkg.num_paginas = 2; pkg.extra_blocos = 3;
+        pkg.extra_total_streams = 5; pkg.extra_text_streams = 4;
+        pkg.extra_failed = 1; pkg.extra_fallback = 0;
+        const char *tmp = "amanda_test_cov.tmp";
+        char *erro = NULL;
+        CHECK(empacotar_amanda(&pkg, tmp, &erro) == 0, "empacota v2 com cobertura");
+        AmandaPackage *back = carregar_amanda(tmp, &erro);
+        CHECK(back && back->num_paginas == 2, "roundtrip v2 preserva paginas");
+        if (back) {
+            EvalConfig cfg; memset(&cfg, 0, sizeof cfg);
+            cfg.sample = 1.0; cfg.seed = 42u; cfg.top_k = 2;
+            EvalReport r;
+            CHECK(eval_run(back, &cfg, &r, &erro) == 0, "eval com cobertura ok");
+            char *j = eval_to_json(&r, tmp);
+            CHECK(j && strstr(j, "cobertura") && strstr(j, "streams_texto") , "json tem cobertura");
+            free(j);
+            liberar_package(back);
+        }
+        remove(tmp);
+        free(pkg.titulo); free(pkg.autor); free(pkg.data);
+        free(pkg.idioma); free(pkg.versao_app);
+        liberar_chunks(ch, 1);
+        liberar_embeddings(e);
+        liberar_perguntas(qs, nq);
+    }
+}
+
 int main(void) {
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
@@ -447,6 +591,7 @@ int main(void) {
     test_calibra();
     test_serve_calib();
     test_config_templates();
+    test_pdf_plus();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

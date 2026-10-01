@@ -43,6 +43,25 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
     memset(out, 0, sizeof *out);
     out->total_perguntas = pkg->num_perguntas;
 
+    /* Fase 7.4: cobertura da extracao direto do pacote (v2; v1 = zeros) */
+    out->cov_paginas = pkg->num_paginas;
+    out->cov_blocos = pkg->extra_blocos;
+    out->cov_chunks = pkg->num_chunks;
+    {
+        long long tc = 0;
+        for (int i = 0; i < pkg->num_chunks; i++)
+            if (pkg->chunks[i].texto) tc += (long long)strlen(pkg->chunks[i].texto);
+        out->cov_chars = tc;
+    }
+    out->cov_chars_por_pag = out->cov_paginas > 0
+        ? (double)out->cov_chars / (double)out->cov_paginas : 0.0;
+    out->cov_perg_por_chunk = pkg->num_chunks > 0
+        ? (double)pkg->num_perguntas / (double)pkg->num_chunks : 0.0;
+    out->cov_total_streams = pkg->extra_total_streams;
+    out->cov_text_streams = pkg->extra_text_streams;
+    out->cov_failed = pkg->extra_failed;
+    out->cov_fallback = pkg->extra_fallback;
+
     int n = pkg->num_perguntas;
     int k = (int)floor((double)n * c.sample + 0.5);
     if (k < 1) k = 1;
@@ -163,7 +182,10 @@ char *eval_to_json(const EvalReport *r, const char *package_path) {
         "\"recusas_in_scope\":%d,"
         "\"por_tipo\":{\"choice\":[%d,%d],\"score\":[%d,%d],\"noul\":[%d,%d]},"
         "\"probes_fora_escopo\":%d,\"recusas_probe\":%d,\"taxa_recusa_probe\":%.4f,"
-        "\"via_laya\":%d,\"via_local\":%d}",
+        "\"via_laya\":%d,\"via_local\":%d,"
+        "\"cobertura\":{\"paginas\":%d,\"blocos\":%d,\"chunks\":%d,"
+        "\"chars\":%lld,\"chars_por_pag\":%.1f,\"perg_por_chunk\":%.2f,"
+        "\"streams\":%d,\"streams_texto\":%d,\"falhas\":%d,\"fallback\":%s}}",
         esc, r->total_perguntas, r->amostradas,
         r->acertos, r->fidelidade, r->acuracia,
         r->confianca_media, r->gap_calibracao, r->ece,
@@ -171,7 +193,11 @@ char *eval_to_json(const EvalReport *r, const char *package_path) {
         r->recusas_in,
         r->hit_choice, r->n_choice, r->hit_score, r->n_score, r->hit_noul, r->n_noul,
         r->n_probes, r->recusas_probe, r->taxa_recusa_probe,
-        r->via_laya, r->via_local);
+        r->via_laya, r->via_local,
+        r->cov_paginas, r->cov_blocos, r->cov_chunks,
+        r->cov_chars, r->cov_chars_por_pag, r->cov_perg_por_chunk,
+        r->cov_total_streams, r->cov_text_streams, r->cov_failed,
+        r->cov_fallback ? "true" : "false");
     free(esc);
     buf_append_cstr(&b, tmp);
     buf_reserve(&b, 1);
@@ -198,4 +224,10 @@ void eval_print_text(const EvalReport *r, const char *package_path) {
            r->recusas_probe, r->n_probes, r->taxa_recusa_probe * 100.0);
     if (r->via_laya + r->via_local > 0)
         printf("  backend: laya=%d local=%d\n", r->via_laya, r->via_local);
+    printf("  cobertura: paginas=%d blocos=%d chunks=%d chars=%lld (%.0f/pag) perg/chunk=%.2f\n",
+           r->cov_paginas, r->cov_blocos, r->cov_chunks,
+           r->cov_chars, r->cov_chars_por_pag, r->cov_perg_por_chunk);
+    printf("  extracao: streams=%d texto=%d falhas=%d fallback=%s\n",
+           r->cov_total_streams, r->cov_text_streams, r->cov_failed,
+           r->cov_fallback ? "sim" : "nao");
 }

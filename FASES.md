@@ -10,6 +10,13 @@
   - [x] 7.1 Docs e higiene: `Projeto.md`/`Jimi.md`/`models/README.md` sincronizados (locais), warning `has_choice` eliminado, `version_bump` no CMake (paridade com `build.bat`).
   - [x] 7.2 Serve calibrado: flags `--conf-center/--conf-slope/--limiar-recusa` no `serve` (backend segue local; LLM-por-request volta na 7.5 com threads).
   - [x] 7.3 Config + templates vivos: `compile --config` (YAML subset, CLI > config), `question_gen` renderizando `templates/*.tpl` com fallback embutido (byte-identico), `--templates-dir`, `--max-choice/score/noul`.
-  - [ ] 7.4 Extração PDF+: operadores, tolerância, cobertura no `eval`.
+  - [x] 7.4 Extração PDF+: operadores Tj/TJ/`'`/`"` + quebras Td/TD/Tm/T*, filtros
+    ASCIIHex/ASCII85/RunLength + cadeia multi-filtro, dicionário próprio por stream
+    (fim da contaminação entre objetos), correção do inflate dinâmico
+    (`bl_count[0]=0`, RFC 1951 — falhava em ~95% dos streams reais), concatenação
+    TJ com kerning, WinAnsi→UTF-8, tolerância com stats, formato `.amanda` v2
+    (cobertura persistida, leitor aceita v1), cobertura no `eval` (texto + `--json`).
+    Testes 83/83. Nos 4 livros: 0 falhas (CVM 448 blocos/412p fid 86%,
+    IBRI 178/161p fid 90%, Invest 253/260p fid 90%, Direito 1393/1348p).
   - [ ] 7.5 Servidor robusto: threads, CORS, auth, limites, `POST /v1/eval`.
   - [ ] 7.6 Release: artefatos CI + `inspect --json`.

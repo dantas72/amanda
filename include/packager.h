@@ -17,6 +17,13 @@ typedef struct {
     Embeddings *embeddings;
     PerguntaTipada *perguntas;
     int num_perguntas;
+    /* Fase 7.4: cobertura da extracao (persistida no formato v2) */
+    int num_paginas;
+    int extra_blocos;
+    int extra_total_streams;
+    int extra_text_streams;
+    int extra_failed;
+    int extra_fallback;
 } AmandaPackage;
 
 int empacotar_amanda(AmandaPackage *pkg, const char *saida, char **erro);

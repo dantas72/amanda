@@ -21,6 +21,13 @@ int empacotar_amanda(AmandaPackage *pkg, const char *saida, char **erro) {
     buf_append_str(&b, pkg->autor ? pkg->autor : "");
     buf_append_str(&b, pkg->data ? pkg->data : "");
     buf_append_str(&b, pkg->idioma ? pkg->idioma : "pt-BR");
+    /* Fase 7.4 (formato v2): cobertura da extracao */
+    buf_append_i32(&b, pkg->num_paginas);
+    buf_append_i32(&b, pkg->extra_blocos);
+    buf_append_i32(&b, pkg->extra_total_streams);
+    buf_append_i32(&b, pkg->extra_text_streams);
+    buf_append_i32(&b, pkg->extra_failed);
+    buf_append_i32(&b, pkg->extra_fallback);
     /* chunks */
     buf_append_u32(&b, (uint32_t)(pkg->num_chunks < 0 ? 0 : pkg->num_chunks));
     for (int i = 0; i < pkg->num_chunks; i++) {
@@ -92,7 +99,7 @@ AmandaPackage *carregar_amanda(const char *caminho, char **erro) {
     reader_init(&r, raw, n - 4);
     r.pos = 4;
     uint32_t fmt = reader_u32(&r);
-    if (r.err || fmt != AMANDA_FORMAT_VERSION) {
+    if (r.err || (fmt != 1u && fmt != AMANDA_FORMAT_VERSION)) {
         free(raw);
         if (erro) *erro = xstrdup("versao de formato .amanda nao suportada");
         return NULL;
@@ -107,6 +114,15 @@ AmandaPackage *carregar_amanda(const char *caminho, char **erro) {
     pkg->data = reader_str(&r);
     pkg->idioma = reader_str(&r);
     if (r.err) goto fail;
+    if (fmt >= 2u) {
+        pkg->num_paginas = reader_i32(&r);
+        pkg->extra_blocos = reader_i32(&r);
+        pkg->extra_total_streams = reader_i32(&r);
+        pkg->extra_text_streams = reader_i32(&r);
+        pkg->extra_failed = reader_i32(&r);
+        pkg->extra_fallback = reader_i32(&r);
+        if (r.err) goto fail;
+    }
     uint32_t nc = reader_u32(&r);
     if (r.err || nc > 100000) goto fail;
     pkg->num_chunks = (int)nc;
@@ -194,14 +210,19 @@ int package_stats(const AmandaPackage *pkg, char *buf, size_t bufsz) {
     }
     return snprintf(buf, bufsz,
         "titulo: %s\nautor: %s\ndata: %s\nidioma: %s\nversao_app: %s\n"
+        "paginas: %d\nblocos: %d\n"
         "chunks: %d\nperguntas: %d (choice=%d score=%d noul=%d)\n"
-        "dimensao_embedding: %d\ntotal_caracteres: %llu\n",
+        "dimensao_embedding: %d\ntotal_caracteres: %llu\n"
+        "extracao: streams=%d texto=%d falhas=%d fallback=%s\n",
         pkg->titulo ? pkg->titulo : "",
         pkg->autor ? pkg->autor : "",
         pkg->data ? pkg->data : "",
         pkg->idioma ? pkg->idioma : "",
         pkg->versao_app ? pkg->versao_app : "",
+        pkg->num_paginas, pkg->extra_blocos,
         pkg->num_chunks, pkg->num_perguntas, nchoice, nscore, nnoul,
         pkg->embeddings ? pkg->embeddings->dimensao : 0,
-        (unsigned long long)total_chars);
+        (unsigned long long)total_chars,
+        pkg->extra_total_streams, pkg->extra_text_streams,
+        pkg->extra_failed, pkg->extra_fallback ? "sim" : "nao");
 }

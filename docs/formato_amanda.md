@@ -1,12 +1,14 @@
-# Formato `.amanda` (Fase 1 — binário, little-endian)
+# Formato `.amanda` (binário, little-endian)
 
 ```
 offset  campo
 0       magic[4] = "AMND"
-4       u32 format_version = 1
+4       u32 format_version = 2 (leitor aceita 1 e 2; v1 => cobertura zerada)
 8       u32 app_major, 12 minor, 16 patch
 20      str titulo | str autor | str data | str idioma
         str = u32 len + bytes (sem NUL)
+v2      i32 num_paginas | i32 extra_blocos | i32 extra_total_streams
+        i32 extra_text_streams | i32 extra_failed | i32 extra_fallback
 ...     u32 num_chunks
         para cada chunk:
           str texto | i32 pag_ini | i32 pag_fim | str hash | i32 num_tokens

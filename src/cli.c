@@ -167,6 +167,12 @@ static int cmd_compile(int argc, char **argv) {
     pkg.embeddings = emb;
     pkg.perguntas = qs;
     pkg.num_perguntas = nq;
+    pkg.num_paginas = doc->num_paginas;
+    pkg.extra_blocos = doc->num_blocos;
+    pkg.extra_total_streams = (int)doc->stats.total_streams;
+    pkg.extra_text_streams = (int)doc->stats.text_streams;
+    pkg.extra_failed = (int)(doc->stats.failed_inflate + doc->stats.failed_decode);
+    pkg.extra_fallback = (int)doc->stats.used_fallback;
 
     int rc = empacotar_amanda(&pkg, output, &erro);
     long long t1 = now_ms();
@@ -176,6 +182,10 @@ static int cmd_compile(int argc, char **argv) {
     } else {
         printf("compile ok: %s\n", output);
         printf("  blocos extraidos: %d (%d paginas)\n", doc->num_blocos, doc->num_paginas);
+        printf("  extracao: streams=%d texto=%d falhas=%d fallback=%s\n",
+               doc->stats.total_streams, doc->stats.text_streams,
+               doc->stats.failed_inflate + doc->stats.failed_decode,
+               doc->stats.used_fallback ? "sim" : "nao");
         printf("  chunks: %d | perguntas: %d | dim: %d | tempo: %lld ms\n",
                nchunks, nq, emb->dimensao, t1 - t0);
     }
