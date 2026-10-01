@@ -30,6 +30,7 @@ typedef SOCKET t75_sock;
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
 typedef int t75_sock;
 #define T75_INVALID -1
 #define t75_close close
@@ -1170,6 +1171,10 @@ static void test_serve_llm(void) {
 }
 
 int main(void) {
+#ifndef _WIN32
+    /* Mesmo motivo de src/main.c: teste com sockets nao pode morrer de SIGPIPE. */
+    signal(SIGPIPE, SIG_IGN);
+#endif
     printf("amanda_tests %s\n", amanda_version());
     test_chunker();
     test_embedder();
