@@ -28,6 +28,13 @@ grounding local e caem para o motor local em qualquer falha ou sem
 slot livre. Respostas trazem `"backend":"local"` ou `"laya-http"`.
 `embeddings` e `eval` seguem sempre locais.
 
+## Citação multi top-2 (Fase 12.2)
+
+`chat` e `decisions` citam os 2 melhores chunks (`top_k >= 2`):
+`citacao` = `"[p.X] <400 chars>[ [p.Y] <400 chars>]"` e o texto
+abre com `"Com base no documento (p. X[, Y]): ..."`. `pagina` segue
+sendo o melhor chunk (compatível com gold recall@2 e `eval`).
+
 ## GET /v1/models
 ```json
 {"object":"list","data":[{"id":"amanda","object":"model","owned_by":"amanda","permission":[]}]}

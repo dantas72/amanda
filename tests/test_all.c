@@ -1170,6 +1170,76 @@ static void test_serve_llm(void) {
     g_t75_port = T75_PORT;
 }
 
+static void test_fase12_retrieval(void) {
+    printf("[fase12-retrieval]\n");
+    {
+        int n = -1;
+        char **t = tokenizar("o de para com", &n);
+        CHECK(n == 0, "stopwords puras geram zero tokens");
+        liberar_tokens(t, n);
+    }
+    {
+        int n = 0;
+        char **t = tokenizar("Coracao e arvore", &n);
+        int has_cor = 0, has_arv = 0;
+        for (int i = 0; i < n; i++) {
+            if (strcmp(t[i], "coracao") == 0) has_cor = 1;
+            if (strcmp(t[i], "arvore") == 0) has_arv = 1;
+        }
+        CHECK(has_cor && has_arv, "acentos dobrados para ascii");
+        liberar_tokens(t, n);
+    }
+    {
+        int n = 0;
+        /* acento de verdade em UTF-8: cora\xc3\xa7\xc3\xa3o */
+        char **t = tokenizar("cora\xc3\xa7\xc3\xa3o cl\xc3\xa1usula", &n);
+        int has_cor = 0, has_cl = 0;
+        for (int i = 0; i < n; i++) {
+            if (strcmp(t[i], "coracao") == 0) has_cor = 1;
+            if (strcmp(t[i], "clausula") == 0) has_cl = 1;
+        }
+        CHECK(has_cor && has_cl, "utf-8 acentuado normaliza");
+        liberar_tokens(t, n);
+    }
+    {
+        Chunk ch[3];
+        memset(ch, 0, sizeof ch);
+        ch[0].texto = "contrato de adesao clausula penal multa rescisoria"; ch[0].pagina_inicio = 1;
+        ch[1].texto = "o gato sentou no tapete fofo"; ch[1].pagina_inicio = 2;
+        ch[2].texto = "o gato correu no parque verde"; ch[2].pagina_inicio = 3;
+        Embeddings *e = gerar_embeddings(ch, 3);
+        int nout = 0;
+        RankItem *rk = recuperar_chunks("clausula penal", ch, 3, e, 3, &nout);
+        CHECK(rk && nout == 3 && rk[0].indice_chunk == 0, "bm25 prefere termo raro");
+        if (rk) free(rk);
+        /* query com acento casa com indice sem acento */
+        rk = recuperar_chunks("cl\xc3\xa1usula penal", ch, 3, e, 3, &nout);
+        CHECK(rk && rk[0].indice_chunk == 0, "query acentuada casa com indice");
+        if (rk) free(rk);
+        rk = recuperar_chunks("o de e", ch, 3, e, 3, &nout);
+        CHECK(rk && rk[0].score < 0.001f, "stopwords puras zeram score");
+        if (rk) free(rk);
+        liberar_embeddings(e);
+    }
+    {
+        Chunk ch[2];
+        memset(ch, 0, sizeof ch);
+        ch[0].texto = "contrato assinado entre partes com clausula penal expressa"; ch[0].pagina_inicio = 1;
+        ch[1].texto = "contrato registrado em cartorio com testemunhas presentes"; ch[1].pagina_inicio = 2;
+        Embeddings *e = gerar_embeddings(ch, 2);
+        DecisionConfig cfg;
+        memset(&cfg, 0, sizeof cfg);
+        cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.0f; cfg.top_k = 2;
+        Decisao *d = executar_decisao("contrato", ch, 2, e, &cfg);
+        CHECK(d && d->citacao && strstr(d->citacao, "[p.1]") && strstr(d->citacao, "[p.2]"),
+              "citacao multi top-k com 2 paginas");
+        CHECK(d && d->resposta && (strstr(d->resposta, "p. 1, 2") != NULL || strstr(d->resposta, "p. 2, 1") != NULL),
+              "resposta indica 2 paginas");
+        liberar_decisao(d);
+        liberar_embeddings(e);
+    }
+}
+
 int main(void) {
 #ifndef _WIN32
     /* Mesmo motivo de src/main.c: teste com sockets nao pode morrer de SIGPIPE. */
@@ -1192,6 +1262,7 @@ int main(void) {
     test_serve_75();
     test_serve_llm();
     test_fase10();
+    test_fase12_retrieval();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

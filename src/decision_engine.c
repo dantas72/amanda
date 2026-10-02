@@ -14,20 +14,64 @@ static int cmp_rank(const void *a, const void *b) {
     return 0;
 }
 
-/* sobreposicao lexica simples */
-static float lexical_overlap(const char *q, const char *d) {
-    int nq = 0, nd = 0;
-    char **tq = tokenizar(q, &nq);
-    char **td = tokenizar(d, &nd);
-    if (nq == 0 || nd == 0) { liberar_tokens(tq, nq); liberar_tokens(td, nd); return 0; }
-    int hit = 0;
-    for (int i = 0; i < nq; i++)
-        for (int j = 0; j < nd; j++)
-            if (strcmp(tq[i], td[j]) == 0) { hit++; break; }
-    float v = (float)hit / (float)nq;
+/* Fase 12.2: BM25 lexical (k1=1.2, b=0.75) com IDF por pacote.
+   Substitui o overlap simples: termo raro pesa mais, stopwords ja
+   filtradas em tokenizar(), normalizacao max-norm 0..1 por query
+   para fusao estavel com o cosseno (0.6*cos + 0.4*bm25). */
+static void bm25_normas(const char *pergunta, Chunk *chunks, int num_chunks,
+                         float *norm_out) {
+    for (int i = 0; i < num_chunks; i++) norm_out[i] = 0.0f;
+    int nq = 0;
+    char **tq = tokenizar(pergunta, &nq);
+    if (nq == 0) { liberar_tokens(tq, nq); return; }
+
+    char ***dt = (char ***)xmalloc(sizeof(char **) * (size_t)num_chunks);
+    int *dl = (int *)xcalloc((size_t)num_chunks, sizeof(int));
+    long total = 0;
+    for (int i = 0; i < num_chunks; i++) {
+        int nd = 0;
+        dt[i] = tokenizar(chunks[i].texto ? chunks[i].texto : "", &nd);
+        dl[i] = nd;
+        total += nd;
+    }
+    double avgdl = num_chunks > 0 ? (double)total / (double)num_chunks : 0.0;
+    if (avgdl < 1.0) avgdl = 1.0;
+
+    double *idf = (double *)xmalloc(sizeof(double) * (size_t)nq);
+    for (int q = 0; q < nq; q++) {
+        int df = 0;
+        for (int i = 0; i < num_chunks; i++) {
+            for (int j = 0; j < dl[i]; j++)
+                if (strcmp(tq[q], dt[i][j]) == 0) { df++; break; }
+        }
+        idf[q] = log(1.0 + ((double)num_chunks - (double)df + 0.5) / ((double)df + 0.5));
+    }
+
+    const double k1 = 1.2, b = 0.75;
+    float bmax = 0.0f;
+    float *raw = (float *)xcalloc((size_t)num_chunks, sizeof(float));
+    for (int i = 0; i < num_chunks; i++) {
+        double s = 0.0;
+        for (int q = 0; q < nq; q++) {
+            int tf = 0;
+            for (int j = 0; j < dl[i]; j++)
+                if (strcmp(tq[q], dt[i][j]) == 0) tf++;
+            if (tf == 0) continue;
+            double denom = (double)tf + k1 * (1.0 - b + b * ((double)dl[i] / avgdl));
+            s += idf[q] * ((double)tf * (k1 + 1.0) / denom);
+        }
+        raw[i] = (float)s;
+        if (raw[i] > bmax) bmax = raw[i];
+    }
+    if (bmax > 0.0f) {
+        for (int i = 0; i < num_chunks; i++) norm_out[i] = raw[i] / bmax;
+    }
+    free(raw);
+    free(idf);
+    for (int i = 0; i < num_chunks; i++) liberar_tokens(dt[i], dl[i]);
+    free(dt);
+    free(dl);
     liberar_tokens(tq, nq);
-    liberar_tokens(td, nd);
-    return v;
 }
 
 RankItem *recuperar_chunks(const char *pergunta, Chunk *chunks, int num_chunks,
@@ -37,15 +81,17 @@ RankItem *recuperar_chunks(const char *pergunta, Chunk *chunks, int num_chunks,
     if (top_k > num_chunks) top_k = num_chunks;
 
     Embeddings *eq = embed_query(pergunta);
+    float *bmn = (float *)xcalloc((size_t)num_chunks, sizeof(float));
+    bm25_normas(pergunta, chunks, num_chunks, bmn);
     RankItem *all = (RankItem *)xmalloc(sizeof(RankItem) * (size_t)num_chunks);
     for (int i = 0; i < num_chunks; i++) {
         float cos = cos_sim(eq->vetores, emb->vetores + (size_t)i * emb->dimensao, emb->dimensao);
         if (cos < 0) cos = 0;
-        float lex = lexical_overlap(pergunta, chunks[i].texto);
-        float score = 0.6f * cos + 0.4f * lex;
+        float score = 0.6f * cos + 0.4f * bmn[i];
         all[i].indice_chunk = i;
         all[i].score = score;
     }
+    free(bmn);
     liberar_embeddings(eq);
     qsort(all, (size_t)num_chunks, sizeof(RankItem), cmp_rank);
     RankItem *top = (RankItem *)xmalloc(sizeof(RankItem) * (size_t)top_k);
@@ -88,29 +134,58 @@ Decisao *executar_decisao(const char *pergunta, Chunk *chunks, int num_chunks,
     d->probabilidade = conf;
     int idx = rk[0].indice_chunk;
     d->pagina = chunks[idx].pagina_inicio;
-    free(rk);
+    /* Fase 12.2: guarda rank para multi-citacao antes de liberar */
+    int ncite = (n >= 2 && c.top_k >= 2) ? 2 : 1;
+    int idx2 = (ncite == 2) ? rk[1].indice_chunk : -1;
+    if (idx2 == idx) ncite = 1;
+    int pg2 = (ncite == 2) ? chunks[idx2].pagina_inicio : -1;
 
     if (conf < c.limiar_recusa) {
+        free(rk);
         d->recusada = 1;
         d->resposta = xstrdup("Nao encontrei informacao suficiente no documento para responder com seguranca.");
         d->citacao = xstrdup("");
         return d;
     }
     d->recusada = 0;
-    /* citacao: ate 400 chars do chunk */
-    size_t cl = strlen(chunks[idx].texto);
-    size_t cn = cl > 400 ? 400 : cl;
-    d->citacao = xstrndup(chunks[idx].texto, cn);
+    /* citacao multi top-k: "[p.X] <400 chars>[ [p.Y] <400 chars>]" */
+    {
+        ByteBuf cb; buf_init(&cb);
+        char mk[48];
+        snprintf(mk, sizeof mk, "[p.%d] ", chunks[idx].pagina_inicio);
+        buf_append_cstr(&cb, mk);
+        size_t cl = strlen(chunks[idx].texto);
+        size_t cn = cl > 400 ? 400 : cl;
+        buf_append(&cb, chunks[idx].texto, cn);
+        if (ncite == 2) {
+            buf_append_cstr(&cb, " [p.");
+            char pg[32];
+            snprintf(pg, sizeof pg, "%d", pg2);
+            buf_append(&cb, pg, strlen(pg));
+            buf_append_cstr(&cb, "] ");
+            size_t c2 = strlen(chunks[idx2].texto);
+            size_t n2 = c2 > 400 ? 400 : c2;
+            buf_append(&cb, chunks[idx2].texto, n2);
+        }
+        buf_reserve(&cb, 1); cb.data[cb.len] = '\0';
+        d->citacao = (char *)cb.data;
+    }
     /* resposta = citacao guiada */
     ByteBuf b; buf_init(&b);
     buf_append(&b, "Com base no documento (p. ", 26);
     char pg[32];
     snprintf(pg, sizeof pg, "%d", d->pagina);
     buf_append(&b, pg, strlen(pg));
+    if (ncite == 2 && pg2 != d->pagina) {
+        buf_append_cstr(&b, ", ");
+        snprintf(pg, sizeof pg, "%d", pg2);
+        buf_append(&b, pg, strlen(pg));
+    }
     buf_append(&b, "): ", 3);
     buf_append(&b, d->citacao, strlen(d->citacao));
     buf_reserve(&b, 1); b.data[b.len] = '\0';
     d->resposta = (char *)b.data;
+    free(rk);
     return d;
 }
 

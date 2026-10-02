@@ -61,3 +61,23 @@
     Cuidado: trocar wording muda scores — sempre `calibrate` depois;
     nunca editar `templates/question_*.tpl` base.
   - `README.md` com descrição empresarial do projeto.
+- [ ] Fase 12 — Retrieval + qualidade (Fase 12.2 entregue 2026-10-02,
+  `amandac 1.0.26`, testes 125/125, gold v2 40/40):
+  - [x] 12.2 Léxico BM25 + stopwords PT + multi-citação:
+    `tokenizar()` dobra UTF-8/Latin1 p/ ASCII + ~130 stopwords PT
+    (vale p/ embeddings e retrieval juntos); `recuperar_chunks()`
+    troca overlap por BM25 (k1=1.2, b=0.75, IDF por pacote, max-norm)
+    mantendo fusão 0.6*cos+0.4*bm25 (pesos/CLI/API/formatos intactos);
+    `executar_decisao()` cita top-2 (`[p.X]` + `[p.Y]`, 400 chars cada,
+    header `p. X, Y`) sem mudar struct nem `.amanda`.
+    Eval estável (CVM 85.1%/-1.2pp, IBRI 88.6%/-1.1pp, INVEST 90.0%/+0.2pp,
+    tudo dentro do ruído ±1.5pp; latência 30–70ms PASS); probes exemplo
+    0/3→2/3. Gold v2: 20 pins atualizados (auditados, vários melhores —
+    ação ordinária→cap. Espécies, análise técnica→capítulo, segregação→
+    frase exata), 4 mantidos via 2ª citação, `check_gold` recall@2
+    (pagina OU `[p.N]`). Limitações conhecidas auditadas: RI→top1
+    planejamento (RI correto em 2º), títulos sustentáveis→top1 p.61 com
+    sujeira binária do PDF (correto em p.198/209) — ver backlog 12.3.
+  - [ ] 12.3 Rerank robusto (backlog): stemming PT, TF-IDF nos embeddings
+    (hoje TF puro c/ colisões favorece chunk curto/sujeira no cosseno),
+    filtro de chunks não-linguísticos, boost de proximidade de frase.
