@@ -28,6 +28,22 @@ typedef struct {
     float tj_espaco;
     float tj_salto;
     int tem_extracao;
+    /* Fase 13: secao servidor (serve --config; flag CLI prevalece) */
+    char srv_host[256];
+    int srv_port;
+    char srv_cors[256];
+    char srv_api_key[512];
+    char srv_api_key_file[1024];
+    long srv_max_body;
+    int srv_max_conns;
+    int srv_workers;
+    int srv_eval_max;
+    char srv_backend[32];
+    char srv_laya_url[256];
+    int srv_laya_timeout_ms;
+    int srv_laya_max;
+    char srv_pacote[1024];
+    int tem_servidor;
 } AmandaConfig;
 
 void config_defaults(AmandaConfig *c);

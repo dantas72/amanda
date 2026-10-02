@@ -28,6 +28,11 @@ int empacotar_amanda(AmandaPackage *pkg, const char *saida, char **erro) {
     buf_append_i32(&b, pkg->extra_text_streams);
     buf_append_i32(&b, pkg->extra_failed);
     buf_append_i32(&b, pkg->extra_fallback);
+    /* Fase 12.4 (formato v3): calibracao gravada */
+    buf_append_i32(&b, pkg->tem_calib ? 1 : 0);
+    buf_append_f32(&b, pkg->cal_center);
+    buf_append_f32(&b, pkg->cal_slope);
+    buf_append_f32(&b, pkg->cal_limiar);
     /* chunks */
     buf_append_u32(&b, (uint32_t)(pkg->num_chunks < 0 ? 0 : pkg->num_chunks));
     for (int i = 0; i < pkg->num_chunks; i++) {
@@ -99,7 +104,7 @@ AmandaPackage *carregar_amanda(const char *caminho, char **erro) {
     reader_init(&r, raw, n - 4);
     r.pos = 4;
     uint32_t fmt = reader_u32(&r);
-    if (r.err || (fmt != 1u && fmt != AMANDA_FORMAT_VERSION)) {
+    if (r.err || (fmt != 1u && fmt != 2u && fmt != AMANDA_FORMAT_VERSION)) {
         free(raw);
         if (erro) *erro = xstrdup("versao de formato .amanda nao suportada");
         return NULL;
@@ -121,6 +126,13 @@ AmandaPackage *carregar_amanda(const char *caminho, char **erro) {
         pkg->extra_text_streams = reader_i32(&r);
         pkg->extra_failed = reader_i32(&r);
         pkg->extra_fallback = reader_i32(&r);
+        if (r.err) goto fail;
+    }
+    if (fmt >= 3u) {
+        pkg->tem_calib = reader_i32(&r) ? 1 : 0;
+        pkg->cal_center = reader_f32(&r);
+        pkg->cal_slope = reader_f32(&r);
+        pkg->cal_limiar = reader_f32(&r);
         if (r.err) goto fail;
     }
     uint32_t nc = reader_u32(&r);
@@ -213,7 +225,8 @@ int package_stats(const AmandaPackage *pkg, char *buf, size_t bufsz) {
         "paginas: %d\nblocos: %d\n"
         "chunks: %d\nperguntas: %d (choice=%d score=%d noul=%d)\n"
         "dimensao_embedding: %d\ntotal_caracteres: %llu\n"
-        "extracao: streams=%d texto=%d falhas=%d fallback=%s\n",
+        "extracao: streams=%d texto=%d falhas=%d fallback=%s\n"
+        "calibracao: %s\n",
         pkg->titulo ? pkg->titulo : "",
         pkg->autor ? pkg->autor : "",
         pkg->data ? pkg->data : "",
@@ -224,7 +237,8 @@ int package_stats(const AmandaPackage *pkg, char *buf, size_t bufsz) {
         pkg->embeddings ? pkg->embeddings->dimensao : 0,
         (unsigned long long)total_chars,
         pkg->extra_total_streams, pkg->extra_text_streams,
-        pkg->extra_failed, pkg->extra_fallback ? "sim" : "nao");
+        pkg->extra_failed, pkg->extra_fallback ? "sim" : "nao",
+        pkg->tem_calib ? "gravada (v3)" : "ausente");
 }
 
 char *package_stats_json(const AmandaPackage *pkg) {
@@ -245,14 +259,22 @@ char *package_stats_json(const AmandaPackage *pkg) {
     char *l = json_escape(pkg->idioma ? pkg->idioma : "pt-BR");
     char *v = json_escape(pkg->versao_app ? pkg->versao_app : "");
     char tmp[2048];
+    char caljs[256];
+    if (pkg->tem_calib)
+        snprintf(caljs, sizeof caljs, "\"calibracao\":{\"center\":%.3f,\"slope\":%.1f,\"limiar\":%.2f},",
+                 pkg->cal_center, pkg->cal_slope, pkg->cal_limiar);
+    else
+        snprintf(caljs, sizeof caljs, "\"calibracao\":null,");
     snprintf(tmp, sizeof tmp,
         "{\"titulo\":\"%s\",\"autor\":\"%s\",\"data\":\"%s\",\"idioma\":\"%s\","
         "\"versao_app\":\"%s\",\"formato\":%u,"
+        "%s"
         "\"paginas\":%d,\"blocos\":%d,\"chunks\":%d,"
         "\"perguntas\":{\"total\":%d,\"choice\":%d,\"score\":%d,\"noul\":%d},"
         "\"dimensao_embedding\":%d,\"total_caracteres\":%llu,"
         "\"extracao\":{\"streams\":%d,\"streams_texto\":%d,\"falhas\":%d,\"fallback\":%s}}",
         t, a, d, l, v, AMANDA_FORMAT_VERSION,
+        caljs,
         pkg->num_paginas, pkg->extra_blocos, pkg->num_chunks,
         pkg->num_perguntas, nchoice, nscore, nnoul,
         pkg->embeddings ? pkg->embeddings->dimensao : 0,

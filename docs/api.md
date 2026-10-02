@@ -7,16 +7,19 @@ Flags de calibração do `serve` (Fase 7.2):
 (zeros = padrão 0.12/12.0/0.30; banner mostra os valores ativos).
 Sugeridos pelo `amandac calibrate`. Backend sempre local no `serve`.
 
-Robustez do `serve` (Fase 7.5):
+Robustez do `serve` (Fase 7.5, endurecido na 13):
 `--cors ORIGEM` (default `*`, ecoado em todas as respostas + preflight),
-`--api-key CHAVE` (quando setado, exige `Authorization: Bearer CHAVE`
-em `/v1/*`; sem chave = aberto; preflight `OPTIONS` sempre livre),
+`--api-key CHAVE` ou `AMANDA_API_KEY` (env) ou `--api-key-file ARQ`
+(precedência: flag > env > arquivo; sem chave = aberto; preflight
+`OPTIONS` sempre livre; a chave nunca aparece em log),
 `--max-body BYTES` (default 1048576; acima = `413`),
-`--max-conns N` (default 16; cheio = `503` + `Retry-After: 2`),
+`--max-conns N` (default 16; fila+ativas — cheio = `503` + `Retry-After: 2`),
+`--workers N` (default 8, teto 64; pool fixo com fila limitada),
 `--eval-max N` (default 200; teto de amostradas no `POST /v1/eval`).
 Cabeçalho limitado a 64KB (`431`), timeout de leitura 30s por conexão.
-Threads: uma por conexão (até `max_conns`); motor local sem estado
-global, seguro para concorrência.
+Log de acesso em `stderr` (hora, método, rota, código, ms — sem corpo
+nem chave). Sem TLS próprio: em produção, atrás de reverse-proxy
+(nginx/Caddy) com HTTPS.
 
 Inferência LLM no `serve` (Fase 11):
 `--backend local|laya-http` (default `local`),
@@ -39,6 +42,19 @@ sendo o melhor chunk (compatível com gold recall@2 e `eval`).
 ```json
 {"object":"list","data":[{"id":"amanda","object":"model","owned_by":"amanda","permission":[]}]}
 ```
+Com multi-pacote (Fase 13), lista um `id` por pacote.
+
+## Multi-pacote (Fase 13)
+
+`--package` repetível (até 8; `nome=caminho` ou basename):
+```bat
+amandac.exe serve --package cvm=build\cvm_teste74.amanda --package ibri=build\ibri_t74.amanda --port 8080
+```
+O campo `"model"` seleciona o pacote (`"amanda"` ou omitido = 1º);
+`GET /v1/models` descobre os nomes; `decisions`/`eval` aceitam
+`"model"` opcional; modelo desconhecido = `404` com a lista.
+Cada pacote usa sua calibração gravada (v3) + índice próprio.
+`GET /v1/amanda/info` traz o 1º pacote + `"pacotes":[nomes]`.
 
 ## GET /v1/amanda/info
 ```json

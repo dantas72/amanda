@@ -80,7 +80,7 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
 
     DecisionConfig dc;
     memset(&dc, 0, sizeof dc);
-    dc.limiar_confianca = 0.7f; dc.limiar_recusa = 0.3f;
+    dc.limiar_confianca = 0.7f;
     dc.top_k = c.top_k;
     dc.backend = c.backend;
     if (c.laya_url[0])
@@ -88,6 +88,15 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
     dc.conf_center = c.conf_center;
     dc.conf_slope = c.conf_slope;
     if (c.tem_limiar) dc.limiar_recusa = c.limiar_recusa;
+    /* Fase 12.4: calibracao gravada no pacote (v3) quando a CLI
+       nao especificou (zeros / sem tem_limiar). */
+    decisao_usar_calib_pacote(&dc, pkg->tem_calib,
+                              pkg->cal_center, pkg->cal_slope, pkg->cal_limiar);
+    if (dc.limiar_recusa == 0.0f) dc.limiar_recusa = 0.3f;
+
+    /* Fase 12.4: indice 1x por run (antes: retokenizava N chunks
+       por query; Direito 3811 chunks/query ~447ms). */
+    RetrievalIndex *rix = indice_criar(pkg->chunks, pkg->num_chunks);
 
     double soma_conf = 0.0;
     double soma_lat = 0.0;
@@ -112,7 +121,7 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
 
         long long t0 = now_ms();
         int usou_laya = 0;
-        Decisao *d = executar_decisao_hibrida(query, pkg->chunks, pkg->num_chunks, pkg->embeddings, &dc, &usou_laya);
+        Decisao *d = executar_decisao_hibrida_idx(query, rix, pkg->chunks, pkg->num_chunks, pkg->embeddings, &dc, &usou_laya);
         long long t1 = now_ms();
         if (usou_laya) out->via_laya++; else out->via_local++;
         double lat = (double)(t1 - t0);
@@ -162,11 +171,12 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
 
     int rp = 0;
     for (int i = 0; i < N_PROBES; i++) {
-        Decisao *d = executar_decisao(PROBES_FORA_ESCOPO[i], pkg->chunks,
-                                      pkg->num_chunks, pkg->embeddings, &dc);
+        Decisao *d = executar_decisao_idx(PROBES_FORA_ESCOPO[i], rix, pkg->chunks,
+                                          pkg->num_chunks, pkg->embeddings, &dc);
         if (d->recusada) rp++;
         liberar_decisao(d);
     }
+    indice_liberar(rix);
     out->n_probes = N_PROBES;
     out->recusas_probe = rp;
     out->taxa_recusa_probe = N_PROBES > 0 ? (double)rp / (double)N_PROBES : 0.0;

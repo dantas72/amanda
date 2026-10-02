@@ -159,7 +159,7 @@ static void test_packager(void) {
         CHECK(strcmp(back->chunks[0].texto, "chunk um sobre entropia") == 0, "texto intacto");
         char *sj = package_stats_json(back);
         CHECK(sj && strstr(sj, "\"chunks\":2") != NULL, "inspect json tem chunks");
-        CHECK(sj && strstr(sj, "\"formato\":2") != NULL, "inspect json tem formato");
+        CHECK(sj && strstr(sj, "\"formato\":3") != NULL, "inspect json tem formato");
         CHECK(sj && strstr(sj, "\"extracao\"") != NULL, "inspect json tem extracao");
         free(sj);
         liberar_package(back);
@@ -389,6 +389,7 @@ static void test_config_templates(void) {
         fputs("question_gen:\n  max_choice: 1\n  max_score: 1\n  max_noul: 2\n", f);
         fputs("decision_engine:\n  limiar_recusa: 0.5\n  chave_desconhecida: 99\n", f);
         fputs("templates:\n  dir: \"templates\"\n", f);
+        fputs("servidor:\n  porta: 8181\n  host: \"0.0.0.0\"\n  workers: 4\n  backend: \"local\"\n  api_key: \"srvK\"\n", f);
         fclose(f);
     }
     AmandaConfig ac;
@@ -402,6 +403,11 @@ static void test_config_templates(void) {
         CHECK(ac.max_choice == 1 && ac.max_noul == 2, "question_gen");
         CHECK(ac.tem_limiar && fabsf(ac.limiar_recusa - 0.5f) < 1e-6f, "limiar_recusa");
         CHECK(strcmp(ac.templates_dir, "templates") == 0, "templates dir");
+        CHECK(ac.tem_servidor && ac.srv_port == 8181, "servidor porta");
+        CHECK(strcmp(ac.srv_host, "0.0.0.0") == 0, "servidor host");
+        CHECK(ac.srv_workers == 4, "servidor workers");
+        CHECK(strcmp(ac.srv_backend, "local") == 0, "servidor backend");
+        CHECK(strcmp(ac.srv_api_key, "srvK") == 0, "servidor api_key");
     } else { printf("  erro: %s\n", erro ? erro : "?"); free(erro); }
     remove(yp);
     AmandaConfig dflt;
@@ -1311,6 +1317,339 @@ static void test_fase123_rerank(void) {
     }
 }
 
+static void test_fase124(void) {    printf("[fase124]\n");
+    {
+        Chunk ch[3];
+        memset(ch, 0, sizeof ch);
+        ch[0].texto = "contrato de adesao clausula penal multa rescisoria"; ch[0].pagina_inicio = 1;
+        ch[1].texto = "o gato sentou no tapete fofo amarelo"; ch[1].pagina_inicio = 2;
+        ch[2].texto = "o gato correu no parque verde amplo"; ch[2].pagina_inicio = 3;
+        Embeddings *e = gerar_embeddings(ch, 3);
+        RetrievalIndex *ix = indice_criar(ch, 3);
+        CHECK(ix != NULL, "indice cria");
+        int n1 = 0, n2 = 0;
+        RankItem *rleg = recuperar_chunks("clausula penal", ch, 3, e, 3, &n1);
+        RankItem *ridx = indice_recuperar(ix, "clausula penal", e, 3, &n2);
+        CHECK(rleg && ridx && n1 == n2, "indice e legado retornam mesmo n");
+        if (rleg && ridx && n1 == n2) {
+            int mesma_ordem = 1;
+            for (int i = 0; i < n1; i++) {
+                if (rleg[i].indice_chunk != ridx[i].indice_chunk) mesma_ordem = 0;
+                if (fabsf(rleg[i].score - ridx[i].score) > 1e-4f) mesma_ordem = 0;
+            }
+            CHECK(mesma_ordem, "indice e legado: mesma ordem e score");
+            CHECK(ridx[0].indice_chunk == 0, "indice prefere termo raro");
+        }
+        free(rleg); free(ridx);
+        /* mesma query 2x: mesmo resultado (deterministico) */
+        RankItem *ra = indice_recuperar(ix, "gato tapete", e, 3, &n1);
+        RankItem *rb = indice_recuperar(ix, "gato tapete", e, 3, &n2);
+        CHECK(ra && rb && ra[0].indice_chunk == rb[0].indice_chunk, "indice deterministico");
+        free(ra); free(rb);
+        indice_liberar(ix);
+        liberar_embeddings(e);
+    }
+    {
+        query_cache_limpar();
+        Embeddings *a = embed_query_cached("contrato assinado");
+        long h1 = 0, m1 = 0;
+        query_cache_stats(&h1, &m1);
+        Embeddings *b = embed_query_cached("contrato assinado");
+        long h2 = 0, m2 = 0;
+        query_cache_stats(&h2, &m2);
+        CHECK(a && b, "cache retorna embeddings");
+        CHECK(m1 == 1 && h1 == 0, "1a query = miss");
+        CHECK(h2 == 1 && m2 == 1, "2a query igual = hit");
+        if (a && b) {
+            int iguais = 1;
+            for (int i = 0; i < 384; i++) {
+                if (fabsf(a->vetores[i] - b->vetores[i]) > 1e-6f) { iguais = 0; break; }
+            }
+            CHECK(iguais, "hit devolve mesmo vetor");
+        }
+        liberar_embeddings(a);
+        liberar_embeddings(b);
+        query_cache_limpar();
+    }
+    {
+        /* v3: calibracao sobrevive ao roundtrip */
+        Chunk *ch = (Chunk *)xcalloc(1, sizeof(Chunk));
+        ch[0].texto = xstrdup("A capital do Brasil e Brasilia, inaugurada em 1960.");
+        ch[0].hash = xstrdup("eeee4444"); ch[0].pagina_inicio = 1; ch[0].pagina_fim = 1; ch[0].num_tokens = 9;
+        Embeddings *e = gerar_embeddings(ch, 1);
+        QuestionGenConfig qc = {1, 1, 1};
+        int nq = 0;
+        PerguntaTipada *qs = gerar_perguntas(ch, 1, &qc, &nq);
+        AmandaPackage pkg;
+        memset(&pkg, 0, sizeof pkg);
+        pkg.titulo = xstrdup("v3"); pkg.autor = xstrdup("t");
+        pkg.data = xstrdup("2026-10-02"); pkg.idioma = xstrdup("pt-BR");
+        pkg.versao_app = xstrdup("1.0.32");
+        pkg.chunks = ch; pkg.num_chunks = 1;
+        pkg.embeddings = e; pkg.perguntas = qs; pkg.num_perguntas = nq;
+        pkg.tem_calib = 1; pkg.cal_center = 0.2f; pkg.cal_slope = 16.0f; pkg.cal_limiar = 0.85f;
+        const char *tmp = "amanda_test_v3.tmp";
+        char *erro = NULL;
+        CHECK(empacotar_amanda(&pkg, tmp, &erro) == 0, "empacota v3 com calib");
+        AmandaPackage *back = carregar_amanda(tmp, &erro);
+        CHECK(back && back->tem_calib == 1, "roundtrip v3 preserva flag");
+        if (back) {
+            CHECK(fabsf(back->cal_center - 0.2f) < 1e-6f, "roundtrip preserva center");
+            CHECK(fabsf(back->cal_slope - 16.0f) < 1e-6f, "roundtrip preserva slope");
+            CHECK(fabsf(back->cal_limiar - 0.85f) < 1e-6f, "roundtrip preserva limiar");
+            char *sj = package_stats_json(back);
+            CHECK(sj && strstr(sj, "calibracao") != NULL, "inspect json expoe calibracao");
+            free(sj);
+            liberar_package(back);
+        }
+        remove(tmp);
+        free(pkg.titulo); free(pkg.autor); free(pkg.data);
+        free(pkg.idioma); free(pkg.versao_app);
+        liberar_chunks(ch, 1);
+        liberar_embeddings(e);
+        liberar_perguntas(qs, nq);
+    }
+    {
+        /* precedencia: zeros -> pacote; explicito -> mantido */
+        DecisionConfig c;
+        memset(&c, 0, sizeof c);
+        decisao_usar_calib_pacote(&c, 1, 0.2f, 16.0f, 0.85f);
+        CHECK(fabsf(c.conf_center - 0.2f) < 1e-6f && fabsf(c.conf_slope - 16.0f) < 1e-6f,
+              "zeros herdam pacote");
+        CHECK(fabsf(c.limiar_recusa - 0.85f) < 1e-6f, "limiar zero herda pacote");
+        DecisionConfig e2;
+        memset(&e2, 0, sizeof e2);
+        e2.conf_center = 0.5f; e2.conf_slope = 20.0f; e2.limiar_recusa = 0.9f;
+        decisao_usar_calib_pacote(&e2, 1, 0.2f, 16.0f, 0.85f);
+        CHECK(fabsf(e2.conf_center - 0.5f) < 1e-6f && fabsf(e2.limiar_recusa - 0.9f) < 1e-6f,
+              "flag CLI vence pacote");
+        DecisionConfig e3;
+        memset(&e3, 0, sizeof e3);
+        decisao_usar_calib_pacote(&e3, 0, 0.2f, 16.0f, 0.85f);
+        CHECK(e3.conf_center == 0.0f && e3.conf_slope == 0.0f, "sem pacote: zeros intactos");
+    }
+}
+
+static void test_fase124b(void) {
+    printf("[fase124b-validacao]\n");
+    /* loader: gold em miniatura com pagina antes da pergunta */
+    const char *vp = "amanda_test_val.tmp";
+    FILE *f = fopen(vp, "w");
+    CHECK(f != NULL, "cria gold temporario");
+    if (f) {
+        fputs("{\"perguntas\":[{\"pagina_esperada\":7,\"pergunta\":\"O que e Brasilia?\"},"
+              "{\"pagina_esperada\":9,\"pergunta\":\"O que e fotossintese?\"}]}", f);
+        fclose(f);
+    }
+    CalibraValQ *vq = NULL;
+    int nvq = 0;
+    char *verr = NULL;
+    CHECK(calibra_carregar_validacao(vp, &vq, &nvq, &verr) == 0, "carrega validacao");
+    if (vq) {
+        CHECK(nvq == 2, "2 naturais carregadas");
+        CHECK(vq[0].pagina == 7 && strstr(vq[0].pergunta, "Brasilia") != NULL, "pagina+pergunta associadas");
+        CHECK(vq[1].pagina == 9, "segunda pagina correta");
+        calibra_liberar_validacao(vq, nvq);
+    } else { printf("  erro: %s\n", verr ? verr : "?"); free(verr); }
+    CHECK(calibra_carregar_validacao("arquivo-que-nao-existe.json", &vq, &nvq, &verr) != 0, "ausente = erro");
+    free(verr); verr = NULL;
+    remove(vp);
+    /* calibrate com validacao: n_val entra no relatorio + recall */
+    {
+        DocumentoExtraido doc;
+        memset(&doc, 0, sizeof doc);
+        BlocoTexto bs[2];
+        bs[0].texto = "A capital do Brasil e Brasilia, inaugurada em 1960. O congresso fica em Brasilia.";
+        bs[0].pagina = 1; bs[0].x = bs[0].y = bs[0].largura = bs[0].altura = 0;
+        bs[1].texto = "A fotossintese produz glicose nas plantas verdes com clorofila.";
+        bs[1].pagina = 2; bs[1].x = bs[1].y = bs[1].largura = bs[1].altura = 0;
+        doc.blocos = bs; doc.num_blocos = 2; doc.num_paginas = 2;
+        int nc = 0;
+        Chunk *ch = dividir_em_chunks(&doc, 180, 0, &nc);
+        Embeddings *e = gerar_embeddings(ch, nc);
+        QuestionGenConfig qc;
+        memset(&qc, 0, sizeof qc);
+        qc.max_choice = 1; qc.max_score = 1; qc.max_noul = 2;
+        int nq = 0;
+        PerguntaTipada *qs = gerar_perguntas(ch, 2, &qc, &nq);
+        AmandaPackage pkg;
+        memset(&pkg, 0, sizeof pkg);
+        pkg.chunks = ch; pkg.num_chunks = nc;
+        pkg.embeddings = e;
+        pkg.perguntas = qs; pkg.num_perguntas = nq;
+        FILE *g = fopen(vp, "w");
+        CHECK(g != NULL, "recria gold temporario");
+        if (g) {
+            fputs("{\"perguntas\":[{\"pagina_esperada\":1,\"pergunta\":\"Qual e a capital do Brasil?\"}]}", g);
+            fclose(g);
+        }
+        CalibraConfig cc;
+        memset(&cc, 0, sizeof cc);
+        cc.sample = 1.0; cc.seed = 42u;
+        snprintf(cc.validacao[0], sizeof cc.validacao[0], "%s", vp);
+        cc.n_validacao = 1;
+        CalibraReport r;
+        char *erro = NULL;
+        CHECK(calibra_run(&pkg, &cc, &r, &erro) == 0, "calibra com validacao ok");
+        if (erro) { printf("  erro: %s\n", erro); free(erro); }
+        CHECK(r.n_val == 1, "n_val=1 no relatorio");
+        CHECK(r.val_recall >= 0.0 && r.val_recall <= 1.0, "recall em [0,1]");
+        char *j = calibra_to_json(&r, "mem");
+        CHECK(j && strstr(j, "validacao") != NULL, "json expoe validacao");
+        free(j);
+        remove(vp);
+        liberar_chunks(ch, nc);
+        liberar_embeddings(e);
+        liberar_perguntas(qs, nq);
+    }
+}
+
+#define T13_PORT 18084
+
+#ifdef _WIN32
+static unsigned __stdcall t13_srv(void *p) { server_run((const ServerConfig *)p); return 0; }
+#else
+static void *t13_srv(void *p) { server_run((const ServerConfig *)p); return NULL; }
+#endif
+
+static AmandaPackage *t13_mkpkg(const char *titulo, const char *texto, int pagina) {
+    Chunk *ch = (Chunk *)xcalloc(1, sizeof(Chunk));
+    ch[0].texto = xstrdup(texto);
+    ch[0].hash = xstrdup("eeee4444"); ch[0].pagina_inicio = pagina; ch[0].pagina_fim = pagina; ch[0].num_tokens = 14;
+    Embeddings *e = gerar_embeddings(ch, 1);
+    QuestionGenConfig qc = {1, 1, 1};
+    int nq = 0;
+    PerguntaTipada *qs = gerar_perguntas(ch, 1, &qc, &nq);
+    AmandaPackage *pkg = (AmandaPackage *)xcalloc(1, sizeof(*pkg));
+    pkg->titulo = xstrdup(titulo); pkg->autor = xstrdup("t");
+    pkg->data = xstrdup("2026-10-02"); pkg->idioma = xstrdup("pt-BR");
+    pkg->versao_app = xstrdup("1.0.33");
+    pkg->chunks = ch; pkg->num_chunks = 1;
+    pkg->embeddings = e; pkg->perguntas = qs; pkg->num_perguntas = nq;
+    pkg->num_paginas = pagina; pkg->extra_blocos = 1;
+    return pkg;
+}
+
+static void test_serve_multi(void) {
+    printf("[serve_multi]\n");
+    /* chave: flag > env > arquivo > aberto */
+    {
+#ifdef _WIN32
+        _putenv("AMANDA_API_KEY=");
+#else
+        unsetenv("AMANDA_API_KEY");
+#endif
+        char *k0 = amanda_resolve_api_key(NULL, NULL);
+        CHECK(k0 == NULL, "sem nada = aberto");
+        free(k0);
+        char *k1 = amanda_resolve_api_key("flagK", NULL);
+        CHECK(k1 && strcmp(k1, "flagK") == 0, "flag vence");
+        free(k1);
+#ifdef _WIN32
+        _putenv("AMANDA_API_KEY=envK");
+#else
+        setenv("AMANDA_API_KEY", "envK", 1);
+#endif
+        char *k2 = amanda_resolve_api_key(NULL, NULL);
+        CHECK(k2 && strcmp(k2, "envK") == 0, "env lido");
+        free(k2);
+        char *k3 = amanda_resolve_api_key("flagK", NULL);
+        CHECK(k3 && strcmp(k3, "flagK") == 0, "flag vence env");
+        free(k3);
+#ifdef _WIN32
+        _putenv("AMANDA_API_KEY=");
+#else
+        unsetenv("AMANDA_API_KEY");
+#endif
+        FILE *kf = fopen("amanda_test_key.tmp", "w");
+        CHECK(kf != NULL, "cria keyfile");
+        if (kf) { fputs("  fileK123\n", kf); fclose(kf); }
+        char *k4 = amanda_resolve_api_key(NULL, "amanda_test_key.tmp");
+        CHECK(k4 && strcmp(k4, "fileK123") == 0, "arquivo com trim");
+        free(k4);
+        char *k5 = amanda_resolve_api_key(NULL, "arquivo-que-nao-existe.key");
+        CHECK(k5 == NULL, "arquivo ausente = aberto");
+        free(k5);
+        remove("amanda_test_key.tmp");
+    }
+    /* dois pacotes, roteamento por model */
+    AmandaPackage *pa = t13_mkpkg("livroA", "A capital do Brasil e Brasilia, inaugurada em 1960.", 11);
+    AmandaPackage *pb = t13_mkpkg("livroB", "A fotossintese produz glicose nas plantas verdes.", 22);
+    AmandaPackage *arr[2] = {pa, pb};
+    const char *nms[2] = {"livroA", "livroB"};
+    g_t75_port = T13_PORT;
+    volatile int stop = 0;
+    ServerConfig sc;
+    memset(&sc, 0, sizeof sc);
+    sc.host = "127.0.0.1"; sc.port = T13_PORT; sc.stop_flag = &stop;
+    sc.pkgs = arr; sc.pkg_names = nms; sc.n_pkgs = 2;
+    sc.max_conns = 8; sc.workers = 4; sc.eval_max = 50;
+#ifdef _WIN32
+    uintptr_t th = _beginthreadex(NULL, 0, t13_srv, &sc, 0, NULL);
+    CHECK(th != 0, "serve multi sobe (pool)");
+#else
+    pthread_t th;
+    CHECK(pthread_create(&th, NULL, t13_srv, &sc) == 0, "serve multi sobe (pool)");
+#endif
+    char *ready = NULL;
+    for (int i = 0; i < 100 && !ready; i++) {
+        char *r = t75_call("GET", "/v1/models", NULL, NULL);
+        if (r && strstr(r, "200 OK")) ready = r;
+        else { free(r); sleep_ms(100); }
+    }
+    CHECK(ready && strstr(ready, "livroA") && strstr(ready, "livroB"), "models lista os 2");
+    free(ready);
+    {
+        char *r = t75_call("POST", "/v1/chat/completions", NULL,
+            "{\"model\":\"livroA\",\"messages\":[{\"role\":\"user\",\"content\":\"Qual e a capital?\"}]}");
+        CHECK(r && strstr(r, "Brasilia") && strstr(r, "\"model\":\"livroA\""), "chat model=livroA roteia");
+        free(r);
+    }
+    {
+        char *r = t75_call("POST", "/v1/chat/completions", NULL,
+            "{\"model\":\"livroB\",\"messages\":[{\"role\":\"user\",\"content\":\"O que e fotossintese?\"}]}");
+        CHECK(r && strstr(r, "glicose") && strstr(r, "\"model\":\"livroB\""), "chat model=livroB roteia");
+        free(r);
+    }
+    {
+        char *r = t75_call("POST", "/v1/chat/completions", NULL,
+            "{\"messages\":[{\"role\":\"user\",\"content\":\"Qual e a capital?\"}]}");
+        CHECK(r && strstr(r, "Brasilia"), "sem model = 1o pacote");
+        free(r);
+    }
+    {
+        char *r = t75_call("POST", "/v1/decisions", NULL,
+            "{\"model\":\"livroB\",\"pergunta\":\"O que e fotossintese?\"}");
+        CHECK(r && strstr(r, "glicose"), "decisions com model roteia");
+        free(r);
+    }
+    {
+        char *r = t75_call("POST", "/v1/chat/completions", NULL,
+            "{\"model\":\"nope\",\"messages\":[{\"role\":\"user\",\"content\":\"oi\"}]}");
+        CHECK(r && strstr(r, "404") && strstr(r, "livroA"), "model desconhecido = 404 com lista");
+        free(r);
+    }
+    {
+        char *r = t75_call("GET", "/v1/amanda/info", NULL, NULL);
+        CHECK(r && strstr(r, "pacotes") && strstr(r, "livroB"), "info expoe pacotes");
+        free(r);
+    }
+    stop = 1;
+    {
+        char *r = t75_call("GET", "/v1/models", NULL, NULL);
+        free(r);
+    }
+#ifdef _WIN32
+    WaitForSingleObject((HANDLE)th, 20000);
+    CloseHandle((HANDLE)th);
+#else
+    pthread_join(th, NULL);
+#endif
+    liberar_package(pa);
+    liberar_package(pb);
+    g_t75_port = T75_PORT;
+}
+
 int main(void) {
 #ifndef _WIN32
     /* Mesmo motivo de src/main.c: teste com sockets nao pode morrer de SIGPIPE. */
@@ -1335,6 +1674,9 @@ int main(void) {
     test_fase10();
     test_fase12_retrieval();
     test_fase123_rerank();
+    test_fase124();
+    test_fase124b();
+    test_serve_multi();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

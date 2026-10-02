@@ -147,3 +147,41 @@ Tradeoff registrado: queries naturais (gold) melhoram — junk top-1
 eliminado (títulos→189), RI→capítulo RI, frases exatas achadas —
 ao custo de ~2pp na fidelidade sintética (CVM/IBRI). Guardrail verde;
 gold 80/80 com 15 repins + 3 swaps auditados (ver CONTINUAR).
+
+## Pós-12.4b — livros em v3 com calibração aplicada + validação natural
+(`amandac` 1.0.32+, pacotes `build/*_t74.amanda` recompilados em v3)
+
+Causa raiz do tradeoff: os 3 probes partilham vocabulário financeiro
+("capital de Marte" conf 0.90 no CVM!) — sobreposição real com a cauda
+natural, inseparável por limiar. Correções: soma BM25 em `double`
+(bit-idêntica ao legado), grade fina no limiar (passo 0.01, 13608
+combos) e `calibrate --validacao <gold.json>` (repetível): as naturais
+não diluem o `bal` — vivem no termo `recall@2` do objetivo
+`(bal + recall@2)/2`, mesma semântica do gold (página OU 2ª citação).
+
+`calibrate` por pacote (amostra 0.2; Direito 0.02; val = gold 20/livro):
+
+| pacote | aplicado (center/slope/limiar) | bal | TPR/TNR | recall@2 val |
+|---|---|---|---|---|
+| cvm | 0.200/16.0/0.85 | 0.995 | 0.99/1.00 | 19/20 (95%) |
+| ibri | 0.200/22.0/0.89 | 1.000 | 1.00/1.00 | 18/20 (90%) |
+| invest | 0.250/30.0/0.82 | 0.999 | 1.00/1.00 | 16/20 (80%) |
+| direito | 0.250/30.0/0.89 | 0.999 | 1.00/1.00 | 19/20 (95%) |
+
+Eval com calibração aplicada (automática em ask/eval/serve):
+
+| pacote | amostradas | fidelidade | lat média | probes |
+|---|---|---|---|---|
+| cvm | 5320 (100%) | 86.64% | 0.7 ms PASS | 3/3 |
+| ibri | 2415 (100%) | 87.41% | 0.3 ms PASS | 3/3 |
+| invest | 2498 (100%) | 88.27% | 0.3 ms PASS | 3/3 |
+| direito | 2000 (6%) | 84.00% | 5.3 ms PASS | 3/3 |
+
+Gold 75/80 (era 80/80 em limiar 0.30): 4 recusas calibradas com rank
+correto (RI 189+374 conf 0.79; CVM-função 87; títulos 189+61; TIR —
+todas respondiam em 0.30 via recall@2) + 1 near-tie auditado (ação
+preferencial 1071→1070; tópico difuso em 122 chunks, sem âncora
+definicional). Para verticais de compliance/jurídico/financeiro, a
+recusa sob sobreposição é a ação calibrada correta (respostas são
+extrativas+citadas; `--limiar-recusa`/`--ignore-calib` sobrescrevem
+por deploy).

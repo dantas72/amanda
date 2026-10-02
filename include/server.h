@@ -3,6 +3,10 @@
 
 #include "packager.h"
 
+#define SRV_MAX_PKGS 8
+#define SRV_WORKERS_DEFAULT 8
+#define SRV_WORKERS_MAX 64
+
 typedef struct {
     const char *host;
     int port;
@@ -14,8 +18,8 @@ typedef struct {
     float limiar_recusa;
     int tem_limiar;
     /* Fase 7.5: robustez (defaults aplicados quando zero/nulo).
-       Backend segue local por request; com threads, varias decisoes
-       locais concorrem sem travar o servico (sem estado global). */
+        Backend segue local por request; com threads, varias decisoes
+        locais concorrem sem travar o servico (sem estado global). */
     const char *cors_origin;  /* default "*" */
     const char *api_key;      /* NULL/vazio = aberto; senao exige Bearer */
     long max_body;            /* bytes; default 1048576; > responde 413 */
@@ -29,8 +33,23 @@ typedef struct {
     char laya_url[256];
     int laya_timeout_ms;      /* default 60000 */
     int laya_max;
+    /* Fase 13: multi-pacote (roteado por "model", default 1o).
+       Quando n_pkgs > 0, pkgs/nomes prevalecem sobre pkg (legado).
+       Nomes unicos (ex.: basename sem extensao); "amanda" = alias
+       do primeiro. /v1/models lista todos. */
+    AmandaPackage **pkgs;
+    const char **pkg_names;
+    int n_pkgs;
+    /* Fase 13: pool de workers (default 8, teto 64). 0 = default.
+       max_conns segue o teto total (ativas + fila); cheio = 503. */
+    int workers;
 } ServerConfig;
 
 int server_run(const ServerConfig *cfg);
+
+/* Fase 13: resolve chave de API (malloc; free com free; NULL = aberto).
+   Precedencia: flag CLI > env AMANDA_API_KEY > arquivo (trim).
+   Nunca logar o valor retornado. */
+char *amanda_resolve_api_key(const char *flag, const char *file);
 
 #endif

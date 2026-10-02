@@ -115,4 +115,4 @@ scripts\test_pipeline.bat
 ## 版本
 `version.bin` 是唯一的版本来源，每次 `build.bat` 递增。
 最近一次本地构建：
-Build: `1.0.31`
+Build: `1.0.34`

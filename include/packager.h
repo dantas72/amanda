@@ -24,6 +24,11 @@ typedef struct {
     int extra_text_streams;
     int extra_failed;
     int extra_fallback;
+    /* Fase 12.4: calibracao gravada (formato v3; v1/v2 => tem_calib=0) */
+    int tem_calib;
+    float cal_center;
+    float cal_slope;
+    float cal_limiar;
 } AmandaPackage;
 
 int empacotar_amanda(AmandaPackage *pkg, const char *saida, char **erro);

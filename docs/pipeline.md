@@ -1,4 +1,4 @@
-# Pipeline Amanda (Fases 1–12.2)
+# Pipeline Amanda (Fases 1–13)
 
 1. **Ingestão** — `amandac compile --input doc.(pdf|txt|csv|json)`
    ou `--config projeto.yaml` (subconjunto YAML: `pdf.caminho/idioma`,
@@ -32,18 +32,24 @@
    (Fase 12.2: 0.6 cosseno + 0.4 BM25 com IDF por pacote, k1=1.2/b=0.75;
    Fase 12.3: norma saturante raw/(raw+8), stemming PT, filtro de chunks
    não-linguísticos, phrase-boost +0.2), recusa calibrada
-   (`--conf-center/--conf-slope/--limiar-recusa`, Fase 7.2),
+   (`--conf-center/--conf-slope/--limiar-recusa`, Fase 7.2,
+   Fase 12.4: pacote v3 vence o padrão, flag CLI vence o pacote,
+   `--ignore-calib` força o histórico),
    citação multi top-2 (`[p.X]` + `[p.Y]`) e backend
    sempre local.
-7. **Validação** — testes unitários em C (`tests/test_all.c`, 125 checks) +
+   Fase 12.4: índice BM25 pré-tokenizado 1x por pacote (compartilhado,
+   somente leitura) + cache de embeddings de query (FIFO 32,
+   thread-safe) — Direito 447ms → ~6ms.
+7. **Validação** — testes unitários em C (`tests/test_all.c`, 150 checks) +
    pipeline de integração (`scripts/test_pipeline.bat/.sh`, 8 etapas
    incluindo `eval`, `calibrate`, compile via `--config` e smoke do
    `POST /v1/eval`). O `eval`
    reporta cobertura da extração (páginas, blocos, chunks, chars,
    streams, falhas) em texto e `--json` (objeto `cobertura`).
-   Regressão de respostas: `scripts/check_gold.bat` (40 perguntas
-   curadas, semântica recall@2 — pagina OU 2ª citação — gold v2
-   Fase 12.2 em `examples/gold_*.json`).
+   `calibrate --apply` grava o sugerido no pacote (v3); `--output`
+   escreve cópia. Regressão de respostas: `scripts/check_gold.bat` (80 perguntas
+   curadas, semântica recall@2 — pagina OU 2ª citação — gold v3
+   em `examples/gold_*.json`).
 8. **Laya (etapas 7–8/8 da pipeline, opcional)** — `scripts/check_laya.bat`
    (engine no ar?) e `scripts/check_laya_llm.bat` (backend `laya-http`
    LIVE ou SKIP honesto). Detalhes em `docs/laya.md`.

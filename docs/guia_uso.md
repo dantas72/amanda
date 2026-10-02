@@ -3,7 +3,7 @@
 Guia prático para compilar conhecimento, servir e testar. Todos os
 comandos abaixo partem da raiz do repositório no **Windows (cmd)**;
 no Linux/Mac troque `amandac.exe` por `./amandac` (ou `build/amandac`)
-e `\` por `/`. Versão mínima: `amandac 1.0.18` (Fase 10).
+e `\` por `/`. Versão mínima: `amandac 1.0.34` (Fase 13).
 
 ## 1. Compilar e verificar a ferramenta
 
@@ -49,14 +49,14 @@ O `compile` imprime a cobertura da extração
 (`streams`, `texto`, `falhas`, `fallback`). `falhas` deve ser 0;
 `fallback=sim` indica PDF problemático (texto parcial).
 
-Referência medida (`amandac` 1.0.15–1.0.17):
+Referência medida (`amandac` 1.0.34, pacotes v3 com calibração aplicada):
 
-| pacote | blocos/páginas | perguntas | fidelidade@10–20% |
-|---|---|---|---|
-| cvm | 448/412 | 5320 | 86% |
-| ibri | 178/161 | 2415 | 90% |
-| invest | 253/260 | 2498 | 90% |
-| direito | 1393/1348 | 33218 | ver § 6 |
+| pacote | blocos/páginas | perguntas | fidelidade | lat média |
+|---|---|---|---|---|
+| cvm | 448/412 | 5320 | 86.64% | 0.7 ms |
+| ibri | 178/161 | 2415 | 87.41% | 0.3 ms |
+| invest | 253/260 | 2498 | 88.27% | 0.3 ms |
+| direito | 1393/1348 | 33218 | 84.00% | 5.3 ms |
 
 ## 4. Avaliar e calibrar (fecha o loop)
 
@@ -74,6 +74,34 @@ amandac.exe eval --package build\cvm.amanda --sample 0.1 --conf-center 0.45 --co
 amandac.exe eval --package build\cvm.amanda --sample 0.1 --json
 ```
 
+Para gravar de vez no pacote (formato v3 — pacotes antigos precisam
+recompilar, sem migração enquanto a ferramenta evolui):
+
+```bat
+amandac.exe calibrate --package build\cvm.amanda --sample 0.2 --apply
+amandac.exe calibrate --package build\cvm.amanda --sample 0.2 --apply --output build\cvm_cal.amanda
+```
+
+Com calibração gravada, `ask`/`eval`/`serve` usam-na automaticamente;
+passe as flags para sobrescrever, ou `--ignore-calib` para forçar o
+padrão histórico (0.12/12.0/0.30).
+
+Com validação natural (gold do livro — evita que o limiar suba à
+custa de perguntas reais; o objetivo vira `(bal + recall@2)/2`):
+
+```bat
+amandac.exe calibrate --package build\cvm.amanda --sample 0.2 --validacao examples\gold_cvm.json --apply
+```
+
+Referência aplicada (`amandac` 1.0.32+, pacotes v3 em `build/`):
+
+| pacote | center/slope/limiar | bal | recall@2 val |
+|---|---|---|---|
+| cvm | 0.200/16.0/0.85 | 0.995 | 19/20 |
+| ibri | 0.200/22.0/0.89 | 1.000 | 18/20 |
+| invest | 0.250/30.0/0.82 | 0.999 | 16/20 |
+| direito | 0.250/30.0/0.89 | 0.999 | 19/20 |
+
 O relatório traz `cobertura` (páginas, blocos, chunks, chars,
 streams, falhas). Progresso de amostras grandes sai em `stderr`
 (o `stdout` fica limpo para `--json`).
@@ -84,16 +112,31 @@ streams, falhas). Progresso de amostras grandes sai em `stderr`
 amandac.exe serve --package build\cvm.amanda --port 8080
 ```
 
-Flags úteis (Fases 7.2/7.5):
+Flags úteis (Fases 7.2/7.5/13):
 
 | flag | default | efeito |
 |---|---|---|
 | `--conf-center/--conf-slope/--limiar-recusa` | 0.12/12.0/0.30 | calibração do `serve` |
 | `--cors ORIGEM` | `*` | `Access-Control-Allow-Origin` |
-| `--api-key CHAVE` | aberto | exige `Authorization: Bearer CHAVE` |
+| `--api-key CHAVE` / `AMANDA_API_KEY` / `--api-key-file ARQ` | aberto | exige `Authorization: Bearer CHAVE` |
 | `--max-body BYTES` | 1048576 | acima = `413` |
-| `--max-conns N` | 16 | cheio = `503` + `Retry-After` |
+| `--max-conns N` | 16 | fila+ativas; cheio = `503` + `Retry-After` |
+| `--workers N` | 8 | pool fixo de threads (teto 64) |
 | `--eval-max N` | 200 | teto do `POST /v1/eval` (excedeu = `400`) |
+| `--config ARQ` | — | seção `servidor:` (flag CLI prevalece) |
+
+Via arquivo de configuração:
+
+```bat
+amandac.exe serve --config examples\config.yaml
+```
+
+Multi-pacote (um `.amanda` por livro, uma porta):
+
+```bat
+amandac.exe serve --package cvm=build\cvm_teste74.amanda --package ibri=build\ibri_t74.amanda --port 8080
+curl.exe -s http://127.0.0.1:8080/v1/models
+```
 
 Rotas: `GET /v1/models`, `GET /v1/amanda/info`,
 `POST /v1/chat/completions` (com `"stream": true` para SSE),
@@ -109,7 +152,8 @@ curl.exe -s -X POST http://127.0.0.1:8080/v1/embeddings -H "Content-Type: applic
 curl.exe -s -X POST http://127.0.0.1:8080/v1/eval -H "Content-Type: application/json" -d "@examples\smoke_eval.json"
 ```
 
-Com chave (troque `TESTE123` pela sua):
+Com chave (troque `TESTE123` pela sua; prefira env ou arquivo —
+flag vaza em `ps`):
 
 ```bat
 amandac.exe serve --package build\cvm.amanda --port 8080 --api-key TESTE123
@@ -133,11 +177,12 @@ engine; `--laya-timeout-ms` (default 60000) limita cada inferência.
 
 ## 6. Bases gigantes (livro de Direito)
 
-Com 33 mil perguntas, a amostra padrão estoura o tempo. Limite:
+Com 33 mil perguntas, prefira amostras limitadas para iterar rápido
+(o índice 12.4 já responde em ~5ms mesmo no Direito):
 
 ```bat
 amandac.exe eval --package build\direito.amanda --sample 0.05 --max-amostras 200
-amandac.exe calibrate --package build\direito.amanda --sample 0.02
+amandac.exe calibrate --package build\direito.amanda --sample 0.02 --validacao examples\gold_direito.json --apply
 ```
 
 No `serve`, o `POST /v1/eval` já barra acima de `--eval-max`
@@ -164,8 +209,9 @@ gcc -O2 -std=c11 -Iinclude tests/test_all.c src/amanda.c src/utils.c src/pdf_ext
 scripts\test_pipeline.bat
 ```
 
-Referência: **108 checks** unitários + 8 etapas de integração
-(2 etapas Laya com SKIP honesto sem o engine em `:8420`).
+Referência: **181 checks** unitários + 8 etapas de integração
+(2 etapas Laya com SKIP honesto sem o engine em `:8420`)
++ regressão gold (`scripts\check_gold.bat`, 80 perguntas, recall@2).
 
 ## 9. Problemas comuns
 
@@ -177,4 +223,6 @@ Referência: **108 checks** unitários + 8 etapas de integração
 | `400` no `/v1/eval` citando teto | amostra > `--eval-max` | use `sample` menor |
 | `fallback=sim` no compile | PDF escaneado/imagem | sem texto extraível; use OCR antes |
 | etapa Laya SKIP | engine fora do ar | normal sem o Laya; ver `docs/laya.md` |
-| CI macOS ausente | runner ARM com falha desde 7.2 | Windows+Linux cobrem; volta na Fase 10 com diagnóstico em Mac real |
+| CI macOS ausente | runner ARM com falha desde 7.2 | Windows+Linux cobrem; reativar com diagnóstico em Mac real |
+| sem HTTPS próprio | `serve` é HTTP puro | rode atrás de reverse-proxy (nginx/Caddy) em produção |
+| log de acesso | vai para `stderr` | hora, método, rota, código, ms (sem corpo nem chave) |

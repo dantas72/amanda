@@ -6,7 +6,7 @@
 - [x] Fase 4 — Servidor SSE + `/v1/embeddings`: `stream:true` retorna `text/event-stream` com deltas + `data: [DONE]`; `POST /v1/embeddings` (string ou array, 384 floats, formato OpenAI); fixtures `examples/smoke_*.json`; smoke no CI e na pipeline `.bat/.sh`.
 - [x] Fase 5 — Calibração com validação em 10% das perguntas + métricas (fidelidade/calibração/latência/recusa).
 - [x] Fase 6 — Recalibração: `amandac calibrate` (grade centro/inclinação/limiar sobre amostra + probes, maximiza acurácia balanceada), motor com sigmoide parametrizável (`--conf-center/--conf-slope/--limiar-recusa` em `ask`/`eval`, zeros = padrão histórico), etapa na pipeline + CI.
-- [ ] Fase 7 — Endurecimento e pendências (microfases independentes):
+- [x] Fase 7 — Endurecimento (microfases 7.1–7.6, todas entregues):
   - [x] 7.1 Docs e higiene: `Projeto.md`/`Jimi.md`/`models/README.md` sincronizados (locais), warning `has_choice` eliminado, `version_bump` no CMake (paridade com `build.bat`).
   - [x] 7.2 Serve calibrado: flags `--conf-center/--conf-slope/--limiar-recusa` no `serve` (backend segue local; LLM-por-request volta na 7.5 com threads).
   - [x] 7.3 Config + templates vivos: `compile --config` (YAML subset, CLI > config), `question_gen` renderizando `templates/*.tpl` com fallback embutido (byte-identico), `--templates-dir`, `--max-choice/score/noul`.
@@ -93,9 +93,60 @@
     89.19→87.25, INVEST -0.4pp ruído; Direito ~84.5%) — queries naturais
     melhoram, guardrail segue verde. 15 repins + 3 swaps auditados
     (pergunta instável em 3 runs → reformulada p/ respondível).
-  - [ ] 12.4 Performance/índice (backlog): índice invertido (BM25 sem
-    retokenizar 3811 chunks/query; Direito 447ms perto do teto),
-    cache de embeddings de query, calibrate --apply.
+  - [x] 12.4 Performance/índice (entregue abaixo; era backlog: índice
+    invertido, cache de query, calibrate --apply).
+- [x] Fase 12.4 — Performance/índice + calibrate --apply (2026-10-02,
+  testes 150/150, gold 80/80 em v2 sem recompilar):
+  - Índice BM25 pré-tokenizado 1x por pacote (`RetrievalIndex` em
+    `decision_engine.c`: tokens + postings + df por pacote, mesma
+    matemática 12.2/12.3 — equivalência provada em teste); `eval` e
+    `calibra` constroem 1x por run; `serve` compartilha 1x por pacote
+    (somente leitura, seguro p/ threads); `ask` 1x por invocação.
+    Direito 447ms → ~6ms (amostra 1%, 332q, mesma fidelidade 82.8%).
+  - Cache de embeddings de query (global, FIFO 32, thread-safe com
+    mutex; chave = string exata; hit devolve cópia).
+  - `calibrate --apply [--output]` grava sugerido no pacote, formato
+    `.amanda` **v3** (`tem_calib` + center/slope/limiar; leitor aceita
+    v1/v2/v3; ferramenta em evolução — pacotes antigos recompilados,
+    sem migração de produção). Precedência: flag CLI > pacote >
+    padrão histórico; `--ignore-calib` em ask/eval/serve. `inspect`
+    texto+json expõe `calibracao`. Exemplo real: `exemplo.amanda`
+    probes 2/3→3/3, gap 0.054→0.000.
+  - Bug achado no caminho: leitor aceitava só v1+v3 (`fmt != 1 &&
+    fmt != VERSAO`) e rejeitava os 4 livros v2 (gold 0/80) — corrigido
+    p/ aceitar 1/2/3 + teste de formato atualizado p/ 3.
+- [x] Fase 12.4b — calibração com validação natural (2026-10-02,
+  testes 161/161, 4 livros em v3 aplicada):
+  - Causa raiz do tradeoff documentada com dados: probes partilham
+    vocabulário ("capital de Marte" conf 0.90!) — sobreposição real,
+    inseparável por limiar; recusar todo OOD implica recusar a cauda
+    natural. Para os verticais (respostas extrativas+citadas), a
+    recusa sob sobreposição é a ação calibrada correta.
+  - Soma BM25 em `double` (bit-idêntica ao legado), grade fina
+    (limiar 0.01, 13608 combos), `calibrate --validacao <gold.json>`
+    (repetível até 8): naturais fora do `bal`, no termo `recall@2`
+    do objetivo `(bal + recall@2)/2` (sem validacao = Fase 6 intacta).
+  - Pontos aplicados: CVM 0.2/16/0.85 (vr 19/20), IBRI 0.2/22/0.89
+    (18/20), INVEST 0.25/30/0.82 (16/20), Direito 0.25/30/0.89
+    (19/20). Eval: 86.64/87.41/88.27/84.00%, lat 0.3–5ms, probes 3/3.
+  - Gold 75/80: 4 recusas com rank correto (RI, CVM-função, títulos,
+    TIR — respondiam em limiar 0.30) + 1 near-tie (preferencial
+    1071→1070, tópico difuso em 122 chunks sem âncora). Pins
+    mantidos (sem repin p/ caber no motor); `--limiar-recusa`
+    sobrescreve por deploy.
+- [x] Fase 13 — Serve enterprise (2026-10-02, testes 181/181):
+  - Pool fixo de workers (`--workers`, default 8, teto 64) + fila
+    limitada; `max_conns` segue o teto total (ativas+fila, 503).
+  - `--api-key` via flag > env `AMANDA_API_KEY` > `--api-key-file`
+    (trim); sem chave = aberto; nunca logada.
+  - `serve --config` (seção `servidor:`: porta/host/pacote/cors/
+    chave/workers/limites/backend/laya; flag CLI prevalece).
+  - Log de acesso em `stderr` (hora, método, rota, código, ms —
+    sem corpo nem chave). Sem TLS próprio (reverse-proxy p/ HTTPS).
+  - Multi-pacote: `--package` repetível (`nome=caminho`, até 8);
+    `"model"` seleciona (`"amanda"`/omitido = 1º); `/v1/models`
+    lista; `decisions`/`eval` aceitam `"model"`; desconhecido = 404
+    com lista; cada pacote com calib v3 + índice próprios.
 - [x] Pós-12.2 (2026-10-02, base completa + testes, sem código C):
   higiene `build/` (removidos 4 `.amanda` legados pré-7.4 superseded),
   `calibrate` por livro registrado em `docs/eval.md` (CVM 0.450/24/0.80,
@@ -104,3 +155,13 @@
   em 1993; lat Direito 447ms PASS perto do teto), gold v3 20/livro
   (80/80 recall@2; 40 novas auditadas, 5 descartadas por fora do
   domínio — usucapião/licitação/duration/guidance/silêncio).
+
+# Futuro (pós-13, planejado — não implementado, ver README "Roteiro futuro")
+- [ ] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
+- [ ] MCP server: expor `ask`/`decisions` como ferramentas MCP p/ OpenCode e agentes.
+- [ ] Pool LLM: fila própria com prioridade p/ inferências `laya-http` (hoje: slots + fallback imediato).
+- [ ] Testes em GPU: Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
+- [ ] CI macOS: reativar com diagnóstico em Mac real (falha ARM desde 7.2).
+- [ ] Auditoria planejado × implementado: `Projeto.md` previa MuPDF/ONNX/GGUF local —
+  implementado diverge de propósito (parser PDF próprio, TF 384d local, Laya via
+  HTTP; ver `Projeto.md` § estado + `docs/laya.md`). Sem lacuna funcional aberta.

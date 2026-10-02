@@ -22,17 +22,24 @@ static void print_uso(void) {
     printf("  amandac compile --input <arq> --output <arq.amanda> [--title T] [--author A] [--lang pt-BR] [--chunk-words N] [--overlap N]\n");
     printf("            [--config <arq.yaml>] [--templates-dir DIR] [--max-choice N] [--max-score N] [--max-noul N]\n");
     printf("            [--tj-espaco F] [--tj-salto F]\n");
-    printf("  amandac serve   --package <arq.amanda> [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
-    printf("                  [--cors ORIGEM] [--api-key CHAVE] [--max-body BYTES] [--max-conns N] [--eval-max N]\n");
+    printf("  amandac serve   --package <arq.amanda> [--package <outro.amanda>] [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
+    printf("                  [--cors ORIGEM] [--api-key CHAVE] [--api-key-file ARQ] [--max-body BYTES] [--max-conns N] [--workers N] [--eval-max N]\n");
+    printf("                  [--config <arq.yaml>] [--ignore-calib]\n");
     printf("                  [--backend local|laya-http] [--laya-url URL] [--laya-timeout-ms MS] [--laya-max N]\n");
+    printf("  (serve multi: --package repetivel ou nome=caminho; \"model\" seleciona o pacote; \"amanda\" = 1o)\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
+    printf("                  [--conf-center F] [--conf-slope F] [--limiar-recusa F] [--ignore-calib]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N] [--json]\n");
     printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("                  [--max-amostras N] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
-    printf("  amandac calibrate --package <arq.amanda> [--sample 0.5] [--seed 42] [--json]\n");
+    printf("  amandac calibrate --package <arq.amanda> [--sample 0.5] [--seed 42] [--json] [--apply] [--output <arq.amanda>]\n");
+    printf("                  [--validacao <gold.json>] (repetivel; naturais como positivos + recall@1)\n");
     printf("  amandac version\n");
     printf("Entradas aceitas: .pdf .txt .csv .json\n");
     printf("Calibracao (Fase 6): --conf-center F --conf-slope F --limiar-recusa F (ask, eval)\n");
+    printf("Fase 12.4: ask/eval/serve usam a calibracao gravada no pacote (v3) quando as flags\n");
+    printf("  nao sao passadas; --ignore-calib forca o padrao historico (0.12/12.0/0.30).\n");
+    printf("  calibrate --apply grava o sugerido no pacote (requer recompilar quem usa v1/v2).\n");
 }
 
 static const char *flag_val(int argc, char **argv, const char *flag, const char *def) {
@@ -211,54 +218,145 @@ static int cmd_compile(int argc, char **argv) {
     return rc == 0 ? 0 : 1;
 }
 
-static int cmd_serve(int argc, char **argv) {
-    const char *pack = flag_val(argc, argv, "--package", NULL);
-    int port = atoi(flag_val(argc, argv, "--port", "8080"));
-    const char *host = flag_val(argc, argv, "--host", "127.0.0.1");
-    if (!pack) { fprintf(stderr, "serve: --package obrigatorio\n"); return 2; }
-    char *erro = NULL;
-    AmandaPackage *pkg = carregar_amanda(pack, &erro);
-    if (!pkg) {
-        fprintf(stderr, "serve: %s\n", erro ? erro : "?");
-        free(erro);
-        return 1;
+/* Fase 13: nome do pacote p/ roteamento: prefixo `nome=` ou basename sem extensao. */
+static void pkg_name_from_path(const char *spec, char *name_out, size_t nn, const char **path_out) {
+    const char *eq = strchr(spec, '=');
+    /* `=` so vale como separador se houver caminho apos ele */
+    if (eq && eq[1]) {
+        size_t nl = (size_t)(eq - spec);
+        if (nl >= nn) nl = nn - 1;
+        memcpy(name_out, spec, nl);
+        name_out[nl] = '\0';
+        *path_out = eq + 1;
+        return;
     }
+    *path_out = spec;
+    const char *b = strrchr(spec, '/');
+    const char *b2 = strrchr(spec, '\\');
+    if (b2 && (!b || b2 > b)) b = b2;
+    b = b ? b + 1 : spec;
+    snprintf(name_out, nn, "%s", b);
+    char *dot = strrchr(name_out, '.');
+    if (dot) *dot = '\0';
+    if (!name_out[0]) snprintf(name_out, nn, "amanda");
+}
+
+static int cmd_serve(int argc, char **argv) {
+    /* Fase 13: --package repetivel (ate 8), --config com secao servidor. */
+    const char *cfg_path = flag_val(argc, argv, "--config", NULL);
+    AmandaConfig acfg;
+    config_defaults(&acfg);
+    if (cfg_path) {
+        char *cerr = NULL;
+        if (config_ler(cfg_path, &acfg, &cerr) != 0) {
+            fprintf(stderr, "serve: %s\n", cerr ? cerr : "?");
+            free(cerr);
+            return 1;
+        }
+    }
+    /* coleta specs de pacotes: flags > config (pacote unico) */
+    const char *specs[SRV_MAX_PKGS];
+    int n_specs = 0;
+    for (int i = 0; i < argc - 1 && n_specs < SRV_MAX_PKGS; i++) {
+        if (strcmp(argv[i], "--package") == 0 && argv[i + 1])
+            specs[n_specs++] = argv[i + 1];
+    }
+    if (n_specs == 0 && acfg.tem_servidor && acfg.srv_pacote[0])
+        specs[n_specs++] = acfg.srv_pacote;
+    if (n_specs == 0) { fprintf(stderr, "serve: --package obrigatorio\n"); return 2; }
+
+    const char *host = flag_val(argc, argv, "--host", NULL);
+    if (!host) host = acfg.tem_servidor && acfg.srv_host[0] ? acfg.srv_host : "127.0.0.1";
+    const char *port_s = flag_val(argc, argv, "--port", NULL);
+    int port = port_s ? atoi(port_s) : (acfg.tem_servidor && acfg.srv_port > 0 ? acfg.srv_port : 8080);
+
+    AmandaPackage *pkgs[SRV_MAX_PKGS];
+    char names[SRV_MAX_PKGS][128];
+    const char *name_ptrs[SRV_MAX_PKGS];
+    for (int i = 0; i < n_specs; i++) {
+        const char *path = NULL;
+        pkg_name_from_path(specs[i], names[i], sizeof names[i], &path);
+        name_ptrs[i] = names[i];
+        for (int j = 0; j < i; j++) {
+            if (strcmp(names[j], names[i]) == 0) {
+                fprintf(stderr, "serve: nome de pacote duplicado: %s (use nome=caminho)\n", names[i]);
+                return 2;
+            }
+        }
+        char *erro = NULL;
+        pkgs[i] = carregar_amanda(path, &erro);
+        if (!pkgs[i]) {
+            fprintf(stderr, "serve: %s (%s)\n", erro ? erro : "?", path);
+            free(erro);
+            for (int j = 0; j < i; j++) liberar_package(pkgs[j]);
+            return 1;
+        }
+    }
+    if (flag_bool(argc, argv, "--ignore-calib")) {
+        for (int i = 0; i < n_specs; i++) pkgs[i]->tem_calib = 0;
+    }
+
     ServerConfig cfg;
     memset(&cfg, 0, sizeof cfg);
-    cfg.host = host; cfg.port = port; cfg.pkg = pkg; cfg.stop_flag = NULL;
+    cfg.host = host; cfg.port = port;
+    cfg.pkg = (n_specs == 1) ? pkgs[0] : NULL;
+    cfg.pkgs = pkgs;
+    cfg.pkg_names = name_ptrs;
+    cfg.n_pkgs = n_specs;
+    cfg.stop_flag = NULL;
+    /* precedencia por campo: flag CLI > config > padrao */
     {
         const char *cc = flag_val(argc, argv, "--conf-center", NULL);
         const char *cs = flag_val(argc, argv, "--conf-slope", NULL);
         const char *lr = flag_val(argc, argv, "--limiar-recusa", NULL);
         if (cc) cfg.conf_center = (float)atof(cc);
+        else if (acfg.tem_servidor && acfg.conf_center != 0.0f) cfg.conf_center = acfg.conf_center;
         if (cs) cfg.conf_slope = (float)atof(cs);
+        else if (acfg.tem_servidor && acfg.conf_slope != 0.0f) cfg.conf_slope = acfg.conf_slope;
         if (lr) { cfg.limiar_recusa = (float)atof(lr); cfg.tem_limiar = 1; }
-        /* Fase 7.5: robustez (defaults no server_run quando ausente) */
+        else if (acfg.tem_limiar) { cfg.limiar_recusa = acfg.limiar_recusa; cfg.tem_limiar = 1; }
+        /* Fase 7.5/13: robustez */
         const char *co = flag_val(argc, argv, "--cors", NULL);
         const char *ak = flag_val(argc, argv, "--api-key", NULL);
+        const char *akf = flag_val(argc, argv, "--api-key-file", NULL);
         const char *mb = flag_val(argc, argv, "--max-body", NULL);
         const char *mc = flag_val(argc, argv, "--max-conns", NULL);
         const char *em = flag_val(argc, argv, "--eval-max", NULL);
-        if (co) cfg.cors_origin = co;
-        if (ak) cfg.api_key = ak;
+        const char *wo = flag_val(argc, argv, "--workers", NULL);
+        cfg.cors_origin = co ? co : (acfg.tem_servidor && acfg.srv_cors[0] ? acfg.srv_cors : NULL);
+        if (!ak && acfg.tem_servidor && acfg.srv_api_key[0]) ak = acfg.srv_api_key;
+        if (!akf && acfg.tem_servidor && acfg.srv_api_key_file[0]) akf = acfg.srv_api_key_file;
+        /* Fase 13: nunca expor a chave (nem logar, nem ecoar em erro) */
+        char *key = amanda_resolve_api_key(ak, akf);
+        cfg.api_key = key;
         if (mb) cfg.max_body = atol(mb);
+        else if (acfg.tem_servidor && acfg.srv_max_body > 0) cfg.max_body = acfg.srv_max_body;
         if (mc) cfg.max_conns = atoi(mc);
+        else if (acfg.tem_servidor && acfg.srv_max_conns > 0) cfg.max_conns = acfg.srv_max_conns;
         if (em) cfg.eval_max = atoi(em);
+        else if (acfg.tem_servidor && acfg.srv_eval_max > 0) cfg.eval_max = acfg.srv_eval_max;
+        if (wo) cfg.workers = atoi(wo);
+        else if (acfg.tem_servidor && acfg.srv_workers > 0) cfg.workers = acfg.srv_workers;
         /* Fase 11: inferencia LLM no serve */
         {
             const char *be = flag_val(argc, argv, "--backend", NULL);
+            if (!be && acfg.tem_servidor && acfg.srv_backend[0]) be = acfg.srv_backend;
             const char *lu = flag_val(argc, argv, "--laya-url", NULL);
+            if (!lu && acfg.tem_servidor && acfg.srv_laya_url[0]) lu = acfg.srv_laya_url;
             const char *lt = flag_val(argc, argv, "--laya-timeout-ms", NULL);
             const char *lm = flag_val(argc, argv, "--laya-max", NULL);
             if (be && (strcmp(be, "laya-http") == 0 || strcmp(be, "laya") == 0))
                 cfg.backend = DECISION_BACKEND_LAYA_HTTP;
             if (lu) snprintf(cfg.laya_url, sizeof cfg.laya_url, "%s", lu);
             if (lt) cfg.laya_timeout_ms = atoi(lt);
+            else if (acfg.tem_servidor && acfg.srv_laya_timeout_ms > 0) cfg.laya_timeout_ms = acfg.srv_laya_timeout_ms;
             if (lm) cfg.laya_max = atoi(lm);
+            else if (acfg.tem_servidor && acfg.srv_laya_max > 0) cfg.laya_max = acfg.srv_laya_max;
         }
     }
     int rc = server_run(&cfg);
-    liberar_package(pkg);
+    free((void *)cfg.api_key);
+    for (int i = 0; i < n_specs; i++) liberar_package(pkgs[i]);
     return rc;
 }
 
@@ -309,12 +407,19 @@ static int cmd_ask(int argc, char **argv) {
     }
     DecisionConfig cfg;
     memset(&cfg, 0, sizeof cfg);
-    cfg.limiar_confianca = 0.7f; cfg.limiar_recusa = 0.3f;
+    cfg.limiar_confianca = 0.7f;
     cfg.top_k = topk > 0 ? topk : 3;
     fill_backend(&cfg, argc, argv);
     fill_calib(&cfg, argc, argv);
+    /* Fase 12.4: pacote v3 vence o padrao; flag CLI vence o pacote. */
+    if (!flag_bool(argc, argv, "--ignore-calib"))
+        decisao_usar_calib_pacote(&cfg, pkg->tem_calib,
+                                  pkg->cal_center, pkg->cal_slope, pkg->cal_limiar);
+    if (cfg.limiar_recusa == 0.0f) cfg.limiar_recusa = 0.3f;
     int via_laya = 0;
-    Decisao *d = executar_decisao_hibrida(q, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg, &via_laya);
+    RetrievalIndex *rix = indice_criar(pkg->chunks, pkg->num_chunks);
+    Decisao *d = executar_decisao_hibrida_idx(q, rix, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg, &via_laya);
+    indice_liberar(rix);
     if (asjson) {
         char *esc = json_escape(d->resposta);
         printf("{\"resposta\":\"%s\",\"probabilidade\":%.4f,\"confianca\":%.4f,\"pagina\":%d,\"recusada\":%s,\"backend\":\"%s\"}\n",
@@ -400,6 +505,7 @@ static int cmd_eval(int argc, char **argv) {
     memset(&cfg, 0, sizeof cfg);
     cfg.sample = sample; cfg.seed = seed; cfg.top_k = topk > 0 ? topk : 3;
     cfg.backend = parse_backend(flag_val(argc, argv, "--backend", "local"));
+    if (flag_bool(argc, argv, "--ignore-calib") && pkg) pkg->tem_calib = 0;
     {
         const char *ma = flag_val(argc, argv, "--max-amostras", NULL);
         if (ma) cfg.max_amostras = atoi(ma);
@@ -438,6 +544,8 @@ static int cmd_calibrate(int argc, char **argv) {
     double sample = atof(flag_val(argc, argv, "--sample", "0.5"));
     unsigned int seed = (unsigned int)atoi(flag_val(argc, argv, "--seed", "42"));
     int asjson = flag_bool(argc, argv, "--json");
+    int apply = flag_bool(argc, argv, "--apply");
+    const char *outpath = flag_val(argc, argv, "--output", NULL);
     if (!pack) { fprintf(stderr, "calibrate: --package obrigatorio\n"); return 2; }
     char *erro = NULL;
     AmandaPackage *pkg = carregar_amanda(pack, &erro);
@@ -449,6 +557,14 @@ static int cmd_calibrate(int argc, char **argv) {
     CalibraConfig cfg;
     memset(&cfg, 0, sizeof cfg);
     cfg.sample = sample; cfg.seed = seed;
+    /* Fase 12.4b: --validacao repetivel (gold JSON com naturais). */
+    for (int i = 0; i < argc - 1 && cfg.n_validacao < 8; i++) {
+        if (strcmp(argv[i], "--validacao") == 0 && argv[i + 1]) {
+            snprintf(cfg.validacao[cfg.n_validacao],
+                     sizeof cfg.validacao[0], "%s", argv[i + 1]);
+            cfg.n_validacao++;
+        }
+    }
     CalibraReport rep;
     if (calibra_run(pkg, &cfg, &rep, &erro) != 0) {
         fprintf(stderr, "calibrate: %s\n", erro ? erro : "?");
@@ -462,6 +578,24 @@ static int cmd_calibrate(int argc, char **argv) {
         free(j);
     } else {
         calibra_print_text(&rep, pack);
+    }
+    /* Fase 12.4: --apply grava o sugerido no pacote (formato v3).
+       Sem --output, reescreve o proprio --package. */
+    if (apply) {
+        const char *dest = (outpath && outpath[0]) ? outpath : pack;
+        pkg->tem_calib = 1;
+        pkg->cal_center = rep.sug_center;
+        pkg->cal_slope = rep.sug_slope;
+        pkg->cal_limiar = rep.sug_limiar;
+        char *werr = NULL;
+        if (empacotar_amanda(pkg, dest, &werr) != 0) {
+            fprintf(stderr, "calibrate: falha ao gravar: %s\n", werr ? werr : "?");
+            free(werr);
+            liberar_package(pkg);
+            return 1;
+        }
+        printf("calibrate: gravado em %s (center=%.3f slope=%.1f limiar=%.2f, formato v%d)\n",
+               dest, rep.sug_center, rep.sug_slope, rep.sug_limiar, AMANDA_FORMAT_VERSION);
     }
     liberar_package(pkg);
     return 0;

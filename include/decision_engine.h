@@ -54,4 +54,38 @@ char *montar_resposta_chat(const char *pergunta, Chunk *chunks, int num_chunks,
                            Embeddings *emb, const DecisionConfig *cfg,
                            float *confianca_out, int *pagina_out);
 
+/* ============ Fase 12.4: indice invertido + cache de query ============ */
+
+/* Indice BM25 pre-tokenizado por pacote (construcao O(chunks) 1x,
+   queries O(termos da query + postings)). Somente leitura apos
+   criar: seguro para queries concorrentes (serve). Criar/liberar
+   nao sao concorrentes entre si. */
+typedef struct RetrievalIndex RetrievalIndex;
+
+RetrievalIndex *indice_criar(Chunk *chunks, int num_chunks);
+void indice_liberar(RetrievalIndex *idx);
+RankItem *indice_recuperar(RetrievalIndex *idx, const char *pergunta,
+                           Embeddings *emb, int top_k, int *n_out);
+Decisao *executar_decisao_idx(const char *pergunta, RetrievalIndex *idx,
+                              Chunk *chunks, int num_chunks,
+                              Embeddings *emb, const DecisionConfig *cfg);
+Decisao *executar_decisao_hibrida_idx(const char *pergunta, RetrievalIndex *idx,
+                                      Chunk *chunks, int num_chunks,
+                                      Embeddings *emb, const DecisionConfig *cfg,
+                                      int *usou_laya_out);
+
+/* Cache de embeddings de query (global, thread-safe, FIFO 32).
+   Chave = string exata da query. Retorna Embeddings novo (liberar
+   com liberar_embeddings); NULL em falha. */
+Embeddings *embed_query_cached(const char *texto);
+void query_cache_limpar(void);
+void query_cache_stats(long *hits_out, long *misses_out);
+
+/* Preenche zeros da cfg com a calibracao gravada no pacote (v3).
+   Precedencia: flag CLI (campo != 0 / tem_limiar) > pacote > padrao
+   historico (0.12/12.0/0.30). Sem pacote ou sem calib -> padrao. */
+void decisao_usar_calib_pacote(DecisionConfig *cfg, int tem_calib,
+                               float cal_center, float cal_slope,
+                               float cal_limiar);
+
 #endif

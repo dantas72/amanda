@@ -1,14 +1,15 @@
 @echo off
 setlocal
 REM check_gold.bat - regressao dos gold sets (examples/gold_*.json)
-REM Roda as 40 perguntas curadas no ask local e confere "pagina".
+REM Roda as 80 perguntas curadas no ask local e confere "pagina".
 REM Semantica recall@2 (Fase 12.2, multi-citacao): PASS se a pagina
 REM esperada for a "pagina" OU aparecer como [p.N] na resposta
 REM (as 2 fontes vao para o usuario; ex. responsabilidade civil 531
 REM em 2o). Gold v2: 20 pins atualizados p/ BM25+stopwords (auditados
 REM em FASES 12.2), 4 mantidos via 2a citacao, 16 inalterados.
 REM Sem os pacotes *_t74.amanda: SKIP honesto (exit 0). Com eles:
-REM 40/40 PASS = exit 0; qualquer divergencia = exit 1.
+REM Com eles:
+REM 80/80 PASS = exit 0; qualquer divergencia = exit 1.
 REM OBS: perguntas sem acento (padrao do repo); nao usar PowerShell aqui.
 cd /d "%~dp0\.."
 

@@ -106,12 +106,40 @@ int config_ler(const char *path, AmandaConfig *out, char **erro) {
             out->tj_espaco = (float)atof(v); out->tem_extracao = 1;
         } else if (strcmp(secao, "extracao") == 0 && strcmp(k, "tj_salto") == 0) {
             out->tj_salto = (float)atof(v); out->tem_extracao = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "porta") == 0) {
+            out->srv_port = atoi(v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "host") == 0) {
+            set_str(out->srv_host, sizeof out->srv_host, v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "pacote") == 0) {
+            set_str(out->srv_pacote, sizeof out->srv_pacote, v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "cors") == 0) {
+            set_str(out->srv_cors, sizeof out->srv_cors, v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "api_key") == 0) {
+            set_str(out->srv_api_key, sizeof out->srv_api_key, v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "api_key_file") == 0) {
+            set_str(out->srv_api_key_file, sizeof out->srv_api_key_file, v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "max_body") == 0) {
+            out->srv_max_body = atol(v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "max_conns") == 0) {
+            out->srv_max_conns = atoi(v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "workers") == 0) {
+            out->srv_workers = atoi(v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "eval_max") == 0) {
+            out->srv_eval_max = atoi(v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "backend") == 0) {
+            set_str(out->srv_backend, sizeof out->srv_backend, v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "laya_url") == 0) {
+            set_str(out->srv_laya_url, sizeof out->srv_laya_url, v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "laya_timeout_ms") == 0) {
+            out->srv_laya_timeout_ms = atoi(v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "laya_max") == 0) {
+            out->srv_laya_max = atoi(v); out->tem_servidor = 1;
         } else if (strcmp(secao, "") == 0 && strcmp(k, "titulo") == 0) {
             set_str(out->title, sizeof out->title, v);
         } else if (strcmp(secao, "") == 0 && strcmp(k, "autor") == 0) {
             set_str(out->author, sizeof out->author, v);
         }
-        /* demais chaves (projeto, versao, modelo, dimensao, servidor...): info, ignoradas */
+        /* demais chaves (projeto, versao, modelo, dimensao...): info, ignoradas */
         lin = prox;
     }
     free(txt);

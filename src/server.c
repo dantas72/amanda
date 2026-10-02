@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -32,9 +33,17 @@ typedef int sock_t;
 
 /* ============ Fase 7.5: contexto por request (sem globais de negocio) ============ */
 
+/* Fase 13: um pacote servido (indice + calibracao resolvida no load). */
 typedef struct {
     AmandaPackage *pkg;
-    DecisionConfig base;
+    char *name;              /* owned */
+    DecisionConfig dc;       /* base + calib do pacote (flag CLI > pacote) */
+    RetrievalIndex *rix;     /* somente leitura, compartilhado */
+} SrvPkg;
+
+typedef struct {
+    SrvPkg *pkgs;
+    int n_pkgs;
     const char *cors;
     const char *api_key;
     long max_body;
@@ -45,6 +54,61 @@ typedef struct {
     int laya_timeout_ms;
     int laya_max;
 } ReqCtx;
+
+/* Fase 13: chave via flag > env AMANDA_API_KEY > arquivo (trim).
+   Retorna malloc (free) ou NULL = aberto. Nunca logar. */
+char *amanda_resolve_api_key(const char *flag, const char *file) {
+    if (flag && flag[0]) return xstrdup(flag);
+    const char *env = getenv("AMANDA_API_KEY");
+    if (env && env[0]) return xstrdup(env);
+    if (file && file[0]) {
+        char *t = read_file_text(file);
+        if (t) {
+            /* trim: pula brancos iniciais, corta finais */
+            char *s = t;
+            while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') s++;
+            size_t n = strlen(s);
+            while (n > 0 && (s[n-1] == ' ' || s[n-1] == '\t' || s[n-1] == '\r' || s[n-1] == '\n'))
+                s[--n] = '\0';
+            char *k = xstrdup(s);
+            free(t);
+            if (k[0]) return k;
+            free(k);
+            return NULL;
+        }
+    }
+    return NULL;
+}
+
+/* Fase 13: log de acesso em stderr (sem corpo, sem chave).
+   Formato: 2026-10-02T12:34:56Z "POST /v1/chat/completions" 200 3ms */
+static void alog(const char *method, const char *path, int code, long long ms) {
+    time_t t = time(NULL);
+    struct tm tmv;
+#ifdef _WIN32
+    gmtime_s(&tmv, &t);
+#else
+    gmtime_r(&t, &tmv);
+#endif
+    char ts[32];
+    strftime(ts, sizeof ts, "%Y-%m-%dT%H:%M:%SZ", &tmv);
+    fprintf(stderr, "%s \"%s %s\" %d %lldms\n", ts,
+            method ? method : "?", path ? path : "?",
+            code, ms);
+    fflush(stderr);
+}
+
+/* Fase 13: escolhe pacote por "model" (NULL/vazio/"amanda" = 1o).
+   Retorna indice ou -1 (desconhecido). */
+static int pick_pkg(const ReqCtx *ctx, const char *model) {
+    if (ctx->n_pkgs <= 0) return -1;
+    if (!model || !model[0] || strcmp(model, "amanda") == 0) return 0;
+    for (int i = 0; i < ctx->n_pkgs; i++) {
+        if (ctx->pkgs[i].name && strcmp(ctx->pkgs[i].name, model) == 0)
+            return i;
+    }
+    return -1;
+}
 
 /* ============ Fase 7.5: slots de concorrencia (contador com mutex) ============ */
 
@@ -97,9 +161,10 @@ static void llm_release(void) {
 
 /* Fase 11: monta cfg hibrida quando ha backend LLM + slot livre.
    Retorna 1 com *usou_slot = 1 se o chamador deve liberar o slot. */
-static int llm_begin(const ReqCtx *ctx, DecisionConfig *out, int *usou_slot) {
+static int llm_begin(const ReqCtx *ctx, const DecisionConfig *base,
+                     DecisionConfig *out, int *usou_slot) {
     *usou_slot = 0;
-    *out = ctx->base;
+    *out = *base;
     if (ctx->backend != DECISION_BACKEND_LAYA_HTTP) return 0;
     int max = (ctx->laya_max > 0) ? ctx->laya_max : 2;
     if (!llm_try_acquire(max)) return 0;
@@ -335,16 +400,8 @@ static void send_sse_chat(sock_t fd, const char *answer, float conf, int pg, con
     send_all(fd, tail, strlen(tail));
 }
 
-static void base_decision_cfg(const ServerConfig *sc, DecisionConfig *dc) {
-    memset(dc, 0, sizeof *dc);
-    dc->limiar_confianca = 0.7f;
-    dc->limiar_recusa = (sc && sc->tem_limiar) ? sc->limiar_recusa : 0.3f;
-    dc->top_k = 3;
-    if (sc) {
-        dc->conf_center = sc->conf_center;
-        dc->conf_slope = sc->conf_slope;
-    }
-}
+/* Fase 13: resolve a DecisionConfig de um pacote (definicao junto ao pool). */
+static void resolve_pkg_dc(const ServerConfig *sc, AmandaPackage *pkg, DecisionConfig *dc);
 
 /* numero JSON: "key" : 123 | 0.5 (default quando ausente/invalido) */
 static double json_find_num(const char *body, const char *key, double def) {
@@ -398,9 +455,27 @@ static int check_auth(const char *hdr, size_t hdr_len, const char *api_key) {
 #define SRV_HDR_MAX 65536
 #define SRV_RECV_TIMEOUT_MS 30000
 
+/* Fase 13: 404 de modelo desconhecido com a lista (sem vazar mais). */
+static void send_unknown_model(sock_t fd, const char *model, const ReqCtx *ctx, const char *cors) {
+    ByteBuf b; buf_init(&b);
+    buf_append_cstr(&b, "{\"error\":\"modelo desconhecido\",\"modelos\":[");
+    for (int i = 0; i < ctx->n_pkgs; i++) {
+        if (i) buf_append(&b, ",", 1);
+        buf_append(&b, "\"", 1);
+        char *e = json_escape(ctx->pkgs[i].name ? ctx->pkgs[i].name : "");
+        buf_append(&b, e, strlen(e));
+        free(e);
+        buf_append(&b, "\"", 1);
+    }
+    buf_append_cstr(&b, "]}");
+    buf_reserve(&b, 1); b.data[b.len] = '\0';
+    send_json(fd, 404, "Not Found", (char *)b.data, cors);
+    buf_free(&b);
+    (void)model;
+}
+
 static int handle_conn(sock_t fd, const ReqCtx *ctx) {
-    AmandaPackage *pkg = ctx->pkg;
-    const DecisionConfig *base = &ctx->base;
+    long long t0 = now_ms();
     const char *cors = (ctx->cors && ctx->cors[0]) ? ctx->cors : "*";
     long max_body = (ctx->max_body > 0) ? ctx->max_body : 1048576L;
 
@@ -417,14 +492,14 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
     }
     if (got <= 0) return 0;
     buf[got] = '\0';
+    char method[16] = {0}, path[512] = {0};
+    sscanf(buf, "%15s %511s", method, path);
     if (hdr_toolarge && !strstr(buf, "\r\n\r\n")) {
         send_json(fd, 431, "Request Header Fields Too Large",
                   "{\"error\":\"cabecalho excede 64KB\"}", cors);
+        alog(method, path, 431, now_ms() - t0);
         return 0;
     }
-
-    char method[16] = {0}, path[512] = {0};
-    sscanf(buf, "%15s %511s", method, path);
 
     int content_len = 0;
     char *cl = strstr(buf, "Content-Length:");
@@ -446,6 +521,7 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
             "Access-Control-Max-Age: 86400\r\n"
             "Content-Length: 0\r\nConnection: close\r\n\r\n", cors);
         send_all(fd, pre, strlen(pre));
+        alog(method, path, 204, now_ms() - t0);
         return 0;
     }
 
@@ -455,6 +531,7 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
         send_json(fd, 401, "Unauthorized",
                   "{\"error\":\"autenticacao ausente ou invalida (use Authorization: Bearer <api-key>)\"}",
                   cors);
+        alog(method, path, 401, now_ms() - t0);
         return 0;
     }
 
@@ -462,6 +539,7 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
     if ((long)content_len > max_body) {
         send_json(fd, 413, "Content Too Large",
                   "{\"error\":\"corpo excede o limite do servidor\"}", cors);
+        alog(method, path, 413, now_ms() - t0);
         return 0;
     }
 
@@ -479,6 +557,7 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
         buf_free(&body);
         send_json(fd, 413, "Content Too Large",
                   "{\"error\":\"corpo excede o limite do servidor\"}", cors);
+        alog(method, path, 413, now_ms() - t0);
         return 0;
     }
     buf_reserve(&body, 1);
@@ -486,72 +565,139 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
     const char *bstr = (const char *)body.data;
 
     if (strcmp(method, "GET") == 0 && (strcmp(path, "/v1/models") == 0 || strcmp(path, "/v1/models/") == 0)) {
-        char js[512];
-        snprintf(js, sizeof js,
-            "{\"object\":\"list\",\"data\":[{\"id\":\"amanda\",\"object\":\"model\",\"owned_by\":\"amanda\",\"permission\":[]}]}");
-        send_json(fd, 200, "OK", js, cors);
+        /* Fase 13: lista todos os pacotes servidos (alias "amanda" = 1o). */
+        ByteBuf js; buf_init(&js);
+        buf_append_cstr(&js, "{\"object\":\"list\",\"data\":[");
+        for (int i = 0; i < ctx->n_pkgs; i++) {
+            if (i) buf_append(&js, ",", 1);
+            char *e = json_escape(ctx->pkgs[i].name ? ctx->pkgs[i].name : "amanda");
+            char tmp[576];
+            snprintf(tmp, sizeof tmp,
+                     "{\"id\":\"%s\",\"object\":\"model\",\"owned_by\":\"amanda\",\"permission\":[]}",
+                     e);
+            free(e);
+            buf_append(&js, tmp, strlen(tmp));
+        }
+        buf_append_cstr(&js, "]}");
+        buf_reserve(&js, 1); js.data[js.len] = '\0';
+        send_json(fd, 200, "OK", (char *)js.data, cors);
+        alog(method, path, 200, now_ms() - t0);
+        buf_free(&js);
     } else if (strcmp(method, "GET") == 0 && strncmp(path, "/v1/amanda/info", 15) == 0) {
-        char st[1024];
-        package_stats(pkg, st, sizeof st);
-        char *esc_t = json_escape(pkg->titulo ? pkg->titulo : "");
-        char *js = (char *)xmalloc(2048);
-        snprintf(js, 2048,
+        SrvPkg *sp = (ctx->n_pkgs > 0) ? &ctx->pkgs[0] : NULL;
+        AmandaPackage *pkg = sp ? sp->pkg : NULL;
+        char *esc_t = json_escape(pkg && pkg->titulo ? pkg->titulo : "");
+        ByteBuf js; buf_init(&js);
+        char tmp[512];
+        snprintf(tmp, sizeof tmp,
             "{\"titulo\":\"%s\",\"chunks\":%d,\"perguntas\":%d,\"dimensao\":%d,\"idioma\":\"%s\",\"versao\":\"%s\"}",
-            esc_t, pkg->num_chunks, pkg->num_perguntas,
-            pkg->embeddings ? pkg->embeddings->dimensao : 0,
-            pkg->idioma ? pkg->idioma : "pt-BR",
-            pkg->versao_app ? pkg->versao_app : "");
+            esc_t, pkg ? pkg->num_chunks : 0, pkg ? pkg->num_perguntas : 0,
+            (pkg && pkg->embeddings) ? pkg->embeddings->dimensao : 0,
+            (pkg && pkg->idioma) ? pkg->idioma : "pt-BR",
+            (pkg && pkg->versao_app) ? pkg->versao_app : "");
         free(esc_t);
-        send_json(fd, 200, "OK", js, cors);
-        free(js);
+        buf_append(&js, tmp, strlen(tmp));
+        if (ctx->n_pkgs > 1) {
+            buf_append_cstr(&js, ",\"pacotes\":[");
+            for (int i = 0; i < ctx->n_pkgs; i++) {
+                if (i) buf_append(&js, ",", 1);
+                char *e = json_escape(ctx->pkgs[i].name ? ctx->pkgs[i].name : "");
+                buf_append(&js, "\"", 1);
+                buf_append(&js, e, strlen(e));
+                buf_append(&js, "\"", 1);
+                free(e);
+            }
+            buf_append(&js, "]", 1);
+        }
+        buf_append(&js, "}", 1);
+        buf_reserve(&js, 1); js.data[js.len] = '\0';
+        send_json(fd, 200, "OK", (char *)js.data, cors);
+        alog(method, path, 200, now_ms() - t0);
+        buf_free(&js);
     } else if (strcmp(method, "POST") == 0 && strncmp(path, "/v1/chat/completions", 22) == 0) {
+        char *model = json_find_string(bstr, "model");
+        int pi = pick_pkg(ctx, model);
+        if (pi < 0) {
+            send_unknown_model(fd, model, ctx, cors);
+            alog(method, path, 404, now_ms() - t0);
+            free(model);
+            buf_free(&body);
+            return 0;
+        }
+        SrvPkg *sp = &ctx->pkgs[pi];
+        AmandaPackage *pkg = sp->pkg;
         char *prompt = extract_prompt(bstr);
         if (!prompt || !prompt[0]) {
             free(prompt);
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo messages[].content ausente\"}", cors);
+            alog(method, path, 400, now_ms() - t0);
         } else {
             /* Fase 11: hibrida quando backend LLM + slot; senao local. */
             DecisionConfig cfg;
             int slot = 0;
-            llm_begin(ctx, &cfg, &slot);
+            llm_begin(ctx, &sp->dc, &cfg, &slot);
             int via_laya = 0;
-            Decisao *dd = executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
-                                                   pkg->embeddings, &cfg, &via_laya);
+            Decisao *dd = sp->rix
+                ? executar_decisao_hibrida_idx(prompt, sp->rix, pkg->chunks, pkg->num_chunks,
+                                               pkg->embeddings, &cfg, &via_laya)
+                : executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
+                                           pkg->embeddings, &cfg, &via_laya);
             if (slot) llm_release();
             const char *bname = via_laya ? "laya-http" : "local";
             float conf = dd->confianca; int pg = dd->pagina;
             char *ans = xstrdup(dd->resposta ? dd->resposta : "");
             liberar_decisao(dd);
             int stream = json_find_bool(bstr, "stream");
+            char *emodel = json_escape(sp->name ? sp->name : "amanda");
             if (stream) {
                 send_sse_chat(fd, ans, conf, pg, cors, bname);
+                alog(method, path, 200, now_ms() - t0);
             } else {
                 char *esc = json_escape(ans);
-                char *js = (char *)xmalloc(strlen(esc) + 1024);
-                snprintf(js, strlen(esc) + 1024,
-                    "{\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion\",\"model\":\"amanda\","
+                char *js = (char *)xmalloc(strlen(esc) + strlen(emodel) + 1024);
+                snprintf(js, strlen(esc) + strlen(emodel) + 1024,
+                    "{\"id\":\"chatcmpl-amanda\",\"object\":\"chat.completion\",\"model\":\"%s\","
                     "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"%s\"},\"finish_reason\":\"stop\"}],"
                     "\"amanda\":{\"confianca\":%.3f,\"pagina\":%d,\"backend\":\"%s\"}}",
-                    esc, conf, pg, bname);
+                    emodel, esc, conf, pg, bname);
                 free(esc);
                 send_json(fd, 200, "OK", js, cors);
+                alog(method, path, 200, now_ms() - t0);
                 free(js);
             }
+            free(emodel);
             free(ans);
             free(prompt);
         }
+        free(model);
     } else if (strcmp(method, "POST") == 0 && strncmp(path, "/v1/decisions", 14) == 0) {
+        char *model = json_find_string(bstr, "model");
+        /* decisions sem "model" usa o padrao; com model desconhecido = 404. */
+        int pi = pick_pkg(ctx, model);
+        if (pi < 0) {
+            send_unknown_model(fd, model, ctx, cors);
+            alog(method, path, 404, now_ms() - t0);
+            free(model);
+            buf_free(&body);
+            return 0;
+        }
+        SrvPkg *sp = &ctx->pkgs[pi];
+        AmandaPackage *pkg = sp->pkg;
         char *prompt = extract_prompt(bstr);
         if (!prompt || !prompt[0]) {
             free(prompt);
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo pergunta ausente\"}", cors);
+            alog(method, path, 400, now_ms() - t0);
         } else {
             DecisionConfig cfg;
             int slot = 0;
-            llm_begin(ctx, &cfg, &slot);
+            llm_begin(ctx, &sp->dc, &cfg, &slot);
             int via_laya = 0;
-            Decisao *d = executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
-                                                  pkg->embeddings, &cfg, &via_laya);
+            Decisao *d = sp->rix
+                ? executar_decisao_hibrida_idx(prompt, sp->rix, pkg->chunks, pkg->num_chunks,
+                                               pkg->embeddings, &cfg, &via_laya)
+                : executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
+                                           pkg->embeddings, &cfg, &via_laya);
             if (slot) llm_release();
             char *esc = json_escape(d->resposta);
             char *escc = json_escape(d->citacao ? d->citacao : "");
@@ -565,13 +711,16 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
             liberar_decisao(d);
             free(prompt);
             send_json(fd, 200, "OK", js, cors);
+            alog(method, path, 200, now_ms() - t0);
             free(js);
         }
+        free(model);
     } else if (strcmp(method, "POST") == 0 && strncmp(path, "/v1/embeddings", 14) == 0) {
         int ni = 0;
         char **inputs = parse_inputs(bstr, &ni);
         if (!inputs || ni == 0) {
             send_json(fd, 400, "Bad Request", "{\"error\":\"campo input ausente (string ou array de strings)\"}", cors);
+            alog(method, path, 400, now_ms() - t0);
         } else {
             ByteBuf js; buf_init(&js);
             buf_append_cstr(&js, "{\"object\":\"list\",\"data\":[");
@@ -602,6 +751,7 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
             buf_append(&js, tail, strlen(tail));
             buf_reserve(&js, 1); js.data[js.len] = '\0';
             send_json(fd, 200, "OK", (char *)js.data, cors);
+            alog(method, path, 200, now_ms() - t0);
             buf_free(&js);
             for (int i = 0; i < ni; i++) free(inputs[i]);
             free(inputs);
@@ -609,7 +759,19 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
     } else if (strcmp(method, "POST") == 0 && strncmp(path, "/v1/eval", 8) == 0 &&
                (path[8] == '\0' || path[8] == '/' || path[8] == '?')) {
         /* Fase 7.5: eval sob o pacote servido (backend sempre local).
-           Teto de amostradas (eval_max) evita DoS em pacotes gigantes. */
+           Teto de amostradas (eval_max) evita DoS em pacotes gigantes.
+           Fase 13: "model" opcional seleciona o pacote. */
+        char *model = json_find_string(bstr, "model");
+        int pi = pick_pkg(ctx, model);
+        if (pi < 0) {
+            send_unknown_model(fd, model, ctx, cors);
+            alog(method, path, 404, now_ms() - t0);
+            free(model);
+            buf_free(&body);
+            return 0;
+        }
+        SrvPkg *sp = &ctx->pkgs[pi];
+        AmandaPackage *pkg = sp->pkg;
         double sample = json_find_num(bstr, "sample", 0.1);
         long seed = (long)json_find_num(bstr, "seed", 42.0);
         int top_k = (int)json_find_num(bstr, "top_k", 3.0);
@@ -628,14 +790,15 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
                 "{\"error\":\"amostra %d excede o teto do servidor (%d); use sample menor\"}",
                 k, cap);
             send_json(fd, 400, "Bad Request", js, cors);
+            alog(method, path, 400, now_ms() - t0);
         } else {
             EvalConfig ec;
             memset(&ec, 0, sizeof ec);
             ec.sample = sample; ec.seed = (unsigned int)seed; ec.top_k = top_k;
             ec.backend = DECISION_BACKEND_LOCAL;
-            ec.conf_center = base->conf_center;
-            ec.conf_slope = base->conf_slope;
-            ec.limiar_recusa = base->limiar_recusa;
+            ec.conf_center = sp->dc.conf_center;
+            ec.conf_slope = sp->dc.conf_slope;
+            ec.limiar_recusa = sp->dc.limiar_recusa;
             ec.tem_limiar = 1;
             EvalReport rep;
             char *erro = NULL;
@@ -645,23 +808,179 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
                          erro ? erro : "?");
                 free(erro);
                 send_json(fd, 500, "Internal Server Error", js, cors);
+                alog(method, path, 500, now_ms() - t0);
             } else {
                 char *j = eval_to_json(&rep, "served-package");
                 send_json(fd, 200, "OK", j, cors);
+                alog(method, path, 200, now_ms() - t0);
                 free(j);
             }
         }
+        free(model);
     } else {
         send_json(fd, 404, "Not Found", "{\"error\":\"rota nao encontrada\"}", cors);
+        alog(method, path, 404, now_ms() - t0);
     }
     buf_free(&body);
     return 0;
 }
 
+/* ============ Fase 13: pool fixo + fila limitada (portatil) ============ */
+
 typedef struct {
-    sock_t fd;
-    ReqCtx ctx;
-} ConnArg;
+    sock_t *fds;
+    int cap, head, tail, count;
+    int closed;
+#ifdef _WIN32
+    CRITICAL_SECTION cs;
+    CONDITION_VARIABLE cv;
+#else
+    pthread_mutex_t mtx;
+    pthread_cond_t cv;
+#endif
+} FdQueue;
+
+static void q_init(FdQueue *q, int cap) {
+    memset(q, 0, sizeof *q);
+    q->cap = cap > 0 ? cap : 16;
+    q->fds = (sock_t *)xmalloc(sizeof(sock_t) * (size_t)q->cap);
+#ifdef _WIN32
+    InitializeCriticalSection(&q->cs);
+    InitializeConditionVariable(&q->cv);
+#else
+    pthread_mutex_init(&q->mtx, NULL);
+    pthread_cond_init(&q->cv, NULL);
+#endif
+}
+
+static void q_destroy(FdQueue *q) {
+    free(q->fds);
+#ifdef _WIN32
+    DeleteCriticalSection(&q->cs);
+#else
+    pthread_mutex_destroy(&q->mtx);
+    pthread_cond_destroy(&q->cv);
+#endif
+}
+
+#ifdef _WIN32
+static int q_push(FdQueue *q, sock_t fd) {
+    int ok = 0;
+    EnterCriticalSection(&q->cs);
+    if (!q->closed && q->count < q->cap) {
+        q->fds[q->tail] = fd;
+        q->tail = (q->tail + 1) % q->cap;
+        q->count++;
+        ok = 1;
+        WakeConditionVariable(&q->cv);
+    }
+    LeaveCriticalSection(&q->cs);
+    return ok;
+}
+
+static sock_t q_pop(FdQueue *q) {
+    sock_t fd = SOCK_INVALID;
+    EnterCriticalSection(&q->cs);
+    while (!q->closed && q->count == 0)
+        SleepConditionVariableCS(&q->cv, &q->cs, INFINITE);
+    if (q->count > 0) {
+        fd = q->fds[q->head];
+        q->head = (q->head + 1) % q->cap;
+        q->count--;
+    }
+    LeaveCriticalSection(&q->cs);
+    return fd;
+}
+
+static void q_close(FdQueue *q) {
+    EnterCriticalSection(&q->cs);
+    q->closed = 1;
+    WakeAllConditionVariable(&q->cv);
+    LeaveCriticalSection(&q->cs);
+}
+#else
+static int q_push(FdQueue *q, sock_t fd) {
+    int ok = 0;
+    pthread_mutex_lock(&q->mtx);
+    if (!q->closed && q->count < q->cap) {
+        q->fds[q->tail] = fd;
+        q->tail = (q->tail + 1) % q->cap;
+        q->count++;
+        ok = 1;
+        pthread_cond_signal(&q->cv);
+    }
+    pthread_mutex_unlock(&q->mtx);
+    return ok;
+}
+
+static sock_t q_pop(FdQueue *q) {
+    sock_t fd = SOCK_INVALID;
+    pthread_mutex_lock(&q->mtx);
+    while (!q->closed && q->count == 0)
+        pthread_cond_wait(&q->cv, &q->mtx);
+    if (q->count > 0) {
+        fd = q->fds[q->head];
+        q->head = (q->head + 1) % q->cap;
+        q->count--;
+    }
+    pthread_mutex_unlock(&q->mtx);
+    return fd;
+}
+
+static void q_close(FdQueue *q) {
+    pthread_mutex_lock(&q->mtx);
+    q->closed = 1;
+    pthread_cond_broadcast(&q->cv);
+    pthread_mutex_unlock(&q->mtx);
+}
+#endif
+
+typedef struct {
+    FdQueue *q;
+    const ReqCtx *ctx;
+} WorkerArg;
+
+#ifdef _WIN32
+static unsigned __stdcall worker_thread(void *p) {
+    WorkerArg *a = (WorkerArg *)p;
+    for (;;) {
+        sock_t fd = q_pop(a->q);
+        if (fd == SOCK_INVALID) break;
+        handle_conn(fd, a->ctx);
+        sock_close(fd);
+        slots_release();
+    }
+    return 0;
+}
+#else
+static void *worker_thread(void *p) {
+    WorkerArg *a = (WorkerArg *)p;
+    for (;;) {
+        sock_t fd = q_pop(a->q);
+        if (fd == SOCK_INVALID) break;
+        handle_conn(fd, a->ctx);
+        sock_close(fd);
+        slots_release();
+    }
+    return NULL;
+}
+#endif
+
+/* Resolve a DecisionConfig de um pacote: flag CLI > pacote v3 > padrao. */
+static void resolve_pkg_dc(const ServerConfig *sc, AmandaPackage *pkg, DecisionConfig *dc) {
+    memset(dc, 0, sizeof *dc);    dc->limiar_confianca = 0.7f;
+    dc->top_k = 3;
+    if (sc) {
+        dc->conf_center = sc->conf_center;
+        dc->conf_slope = sc->conf_slope;
+        if (sc->tem_limiar) dc->limiar_recusa = sc->limiar_recusa;
+    }
+    if (pkg)
+        decisao_usar_calib_pacote(dc, pkg->tem_calib,
+                                  pkg->cal_center, pkg->cal_slope,
+                                  pkg->cal_limiar);
+    if (dc->limiar_recusa == 0.0f) dc->limiar_recusa = 0.3f;
+}
 
 static void conn_set_timeout(sock_t fd) {
 #ifdef _WIN32
@@ -672,50 +991,6 @@ static void conn_set_timeout(sock_t fd) {
     tv.tv_sec = SRV_RECV_TIMEOUT_MS / 1000;
     tv.tv_usec = (SRV_RECV_TIMEOUT_MS % 1000) * 1000;
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-#endif
-}
-
-#ifdef _WIN32
-static unsigned __stdcall conn_thread(void *p) {
-    ConnArg *a = (ConnArg *)p;
-    handle_conn(a->fd, &a->ctx);
-    sock_close(a->fd);
-    free(a);
-    slots_release();
-    return 0;
-}
-#else
-static void *conn_thread(void *p) {
-    ConnArg *a = (ConnArg *)p;
-    handle_conn(a->fd, &a->ctx);
-    sock_close(a->fd);
-    free(a);
-    slots_release();
-    return NULL;
-}
-#endif
-
-static void spawn_conn(ConnArg *a) {
-#ifdef _WIN32
-    uintptr_t h = _beginthreadex(NULL, 0, conn_thread, a, 0, NULL);
-    if (h == 0) {
-        handle_conn(a->fd, &a->ctx);
-        sock_close(a->fd);
-        free(a);
-        slots_release();
-    } else {
-        CloseHandle((HANDLE)h);
-    }
-#else
-    pthread_t th;
-    if (pthread_create(&th, NULL, conn_thread, a) != 0) {
-        handle_conn(a->fd, &a->ctx);
-        sock_close(a->fd);
-        free(a);
-        slots_release();
-    } else {
-        pthread_detach(th);
-    }
 #endif
 }
 
@@ -752,28 +1027,84 @@ int server_run(const ServerConfig *cfg) {
         sock_close(srv);
         return 1;
     }
-    printf("amandac serve: http://%s:%d (pacote: %d chunks)\n",
-           cfg->host ? cfg->host : "127.0.0.1", cfg->port,
-           cfg->pkg ? cfg->pkg->num_chunks : 0);
-    printf("rotas: GET /v1/models | GET /v1/amanda/info | POST /v1/chat/completions (+stream) | POST /v1/decisions | POST /v1/embeddings | POST /v1/eval\n");
-    DecisionConfig base;
-    base_decision_cfg(cfg, &base);
-    printf("calibracao: center=%.3f slope=%.1f limiar_recusa=%.2f%s\n",
-           base.conf_slope > 0.0f ? base.conf_center : 0.12f,
-           base.conf_slope > 0.0f ? base.conf_slope : 12.0f,
-           base.limiar_recusa, " (backend local)");
     const char *cors = (cfg->cors_origin && cfg->cors_origin[0]) ? cfg->cors_origin : "*";
     long max_body = (cfg->max_body > 0) ? cfg->max_body : 1048576L;
     int max_conns = (cfg->max_conns > 0) ? cfg->max_conns : 16;
     int eval_max = (cfg->eval_max > 0) ? cfg->eval_max : 200;
-    printf("robustez: threads ate %d conns | cors=%s | auth=%s | max_body=%ld | eval_max=%d | recv_timeout=%dms\n",
-           max_conns, cors, (cfg->api_key && cfg->api_key[0]) ? "on (Bearer)" : "off (aberto)",
+    int nworkers = (cfg->workers > 0) ? cfg->workers : SRV_WORKERS_DEFAULT;
+    if (nworkers > SRV_WORKERS_MAX) nworkers = SRV_WORKERS_MAX;
+
+    /* Fase 13: lista de pacotes (multi) ou legado (pkg unico). */
+    SrvPkg *spk = NULL;
+    int n_pkgs = 0;
+    if (cfg->n_pkgs > 0) {
+        if (cfg->n_pkgs > SRV_MAX_PKGS) {
+            fprintf(stderr, "amandac: maximo %d pacotes por serve\n", SRV_MAX_PKGS);
+            sock_close(srv);
+            return 1;
+        }
+        spk = (SrvPkg *)xcalloc((size_t)cfg->n_pkgs, sizeof(SrvPkg));
+        n_pkgs = cfg->n_pkgs;
+        for (int i = 0; i < n_pkgs; i++) {
+            AmandaPackage *p = cfg->pkgs[i];
+            const char *nm = (cfg->pkg_names && cfg->pkg_names[i]) ? cfg->pkg_names[i] : "amanda";
+            if (!p || p->num_chunks <= 0 || !nm[0]) {
+                fprintf(stderr, "amandac: pacote %d invalido (nome/chunks)\n", i);
+                for (int j = 0; j < i; j++) free(spk[j].name);
+                free(spk);
+                sock_close(srv);
+                return 1;
+            }
+            for (int j = 0; j < i; j++) {
+                if (strcmp(spk[j].name, nm) == 0) {
+                    fprintf(stderr, "amandac: nome de pacote duplicado: %s\n", nm);
+                    for (int k = 0; k < i; k++) { free(spk[k].name); indice_liberar(spk[k].rix); }
+                    free(spk);
+                    sock_close(srv);
+                    return 1;
+                }
+            }
+            spk[i].pkg = p;
+            spk[i].name = xstrdup(nm);
+            resolve_pkg_dc(cfg, p, &spk[i].dc);
+            spk[i].rix = indice_criar(p->chunks, p->num_chunks);
+        }
+    } else {
+        if (!cfg->pkg || cfg->pkg->num_chunks <= 0) {
+            fprintf(stderr, "amandac: serve exige --package\n");
+            sock_close(srv);
+            return 1;
+        }
+        spk = (SrvPkg *)xcalloc(1, sizeof(SrvPkg));
+        n_pkgs = 1;
+        spk[0].pkg = cfg->pkg;
+        spk[0].name = xstrdup("amanda");
+        resolve_pkg_dc(cfg, cfg->pkg, &spk[0].dc);
+        spk[0].rix = indice_criar(cfg->pkg->chunks, cfg->pkg->num_chunks);
+    }
+
+    printf("amandac serve: http://%s:%d (%d pacote%s)\n",
+           cfg->host ? cfg->host : "127.0.0.1", cfg->port,
+           n_pkgs, n_pkgs == 1 ? "" : "s");
+    for (int i = 0; i < n_pkgs; i++) {
+        DecisionConfig *d = &spk[i].dc;
+        printf("  modelo '%s': %d chunks | center=%.3f slope=%.1f limiar=%.2f\n",
+               spk[i].name, spk[i].pkg->num_chunks,
+               d->conf_slope > 0.0f ? d->conf_center : 0.12f,
+               d->conf_slope > 0.0f ? d->conf_slope : 12.0f,
+               d->limiar_recusa);
+    }
+    printf("rotas: GET /v1/models | GET /v1/amanda/info | POST /v1/chat/completions (+stream) | POST /v1/decisions | POST /v1/embeddings | POST /v1/eval\n");
+    printf("rotas (Fase 13): \"model\" seleciona o pacote (omitido/\"amanda\" = 1o); log de acesso em stderr\n");
+    printf("robustez: pool %d workers, fila+ativas ate %d conns (cheio = 503) | cors=%s | auth=%s | max_body=%ld | eval_max=%d | recv_timeout=%dms\n",
+           nworkers, max_conns, cors, (cfg->api_key && cfg->api_key[0]) ? "on (Bearer)" : "off (aberto)",
            max_body, eval_max, SRV_RECV_TIMEOUT_MS);
     fflush(stdout);
 
     ReqCtx ctx;
-    ctx.pkg = cfg->pkg;
-    ctx.base = base;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.pkgs = spk;
+    ctx.n_pkgs = n_pkgs;
     ctx.cors = cors;
     ctx.api_key = cfg->api_key;
     ctx.max_body = max_body;
@@ -792,6 +1123,43 @@ int server_run(const ServerConfig *cfg) {
         printf("llm: backend=local (use --backend laya-http para inferencia via Laya)\n");
     fflush(stdout);
 
+    /* Fase 13: pool fixo; aceite conta fila+ativas no teto max_conns. */
+    FdQueue fq;
+    q_init(&fq, max_conns);
+    WorkerArg warg;
+    warg.q = &fq;
+    warg.ctx = &ctx;
+#ifdef _WIN32
+    HANDLE *wh = (HANDLE *)xmalloc(sizeof(HANDLE) * (size_t)nworkers);
+    int nwh = 0;
+    for (int i = 0; i < nworkers; i++) {
+        uintptr_t h = _beginthreadex(NULL, 0, worker_thread, &warg, 0, NULL);
+        if (h == 0) break;
+        wh[nwh++] = (HANDLE)h;
+    }
+    if (nwh == 0) {
+        fprintf(stderr, "amandac: falha ao criar pool\n");
+        free(wh);
+        q_destroy(&fq);
+        sock_close(srv);
+        return 1;
+    }
+#else
+    pthread_t *wth = (pthread_t *)xmalloc(sizeof(pthread_t) * (size_t)nworkers);
+    int nth = 0;
+    for (int i = 0; i < nworkers; i++) {
+        if (pthread_create(&wth[nth], NULL, worker_thread, &warg) != 0) break;
+        nth++;
+    }
+    if (nth == 0) {
+        fprintf(stderr, "amandac: falha ao criar pool\n");
+        free(wth);
+        q_destroy(&fq);
+        sock_close(srv);
+        return 1;
+    }
+#endif
+
     for (;;) {
         if (cfg->stop_flag && *cfg->stop_flag) break;
         struct sockaddr_in cli;
@@ -804,18 +1172,27 @@ int server_run(const ServerConfig *cfg) {
             sock_close(fd);
             continue;
         }
-        ConnArg *a = (ConnArg *)xmalloc(sizeof(*a));
-        a->fd = fd;
-        a->ctx = ctx;
-        spawn_conn(a);
+        if (!q_push(&fq, fd)) {
+            /* fila cheia (nao deve ocorrer sob o teto): 503 honesto */
+            slots_release();
+            send_busy(fd, cors);
+            sock_close(fd);
+            continue;
+        }
     }
-    /* esvazia workers antes de voltar (detach: espera ativa zerar) */
-    for (int w = 0; w < 200; w++) {
-        int n = 0;
-        slots_lock(); n = g_slots_active; slots_unlock();
-        if (n <= 0) break;
-        sleep_ms(50);
-    }
+    /* desliga: fecha fila (workers drenam e saem), aguarda join */
+    q_close(&fq);
+#ifdef _WIN32
+    WaitForMultipleObjects((DWORD)nwh, wh, TRUE, 30000);
+    for (int i = 0; i < nwh; i++) CloseHandle(wh[i]);
+    free(wh);
+#else
+    for (int i = 0; i < nth; i++) pthread_join(wth[i], NULL);
+    free(wth);
+#endif
+    q_destroy(&fq);
+    for (int i = 0; i < n_pkgs; i++) { free(spk[i].name); indice_liberar(spk[i].rix); }
+    free(spk);
     sock_close(srv);
 #ifdef _WIN32
     WSACleanup();
