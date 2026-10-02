@@ -156,19 +156,21 @@
   (80/80 recall@2; 40 novas auditadas, 5 descartadas por fora do
   domínio — usucapião/licitação/duration/guidance/silêncio).
 
-- [x] Fase 14 — CI macOS de volta (2026-10-02):
-  matriz `windows + ubuntu + macos-15 (M1 ARM64) + macos-15-intel
-  (x86_64)`, bloqueante. Auditoria prévia: sem intrínsecos x86,
-  little-endian byte-a-byte, SIGPIPE portátil, stack das threads
-  (~70KB < 512KB do macOS), Clang OK (`-Wall -Wextra` limpo).
-  M2 só em larger pagos, M3/M4 sem labels — essas máquinas via
-  self-hosted (roteiro futuro).
+- [ ] Fase 14 — CI macOS (PAUSADA 2026-10-02, revertida p/ win+linux):
+  reativado como `macos-15` (M1) + `macos-15-intel`, build OK nas 2
+  archs mas unit tests morrem em 0s em ambas (run 37075569182) —
+  crash na partida, igual em ARM e Intel (não é bug ARM). Auditoria
+  prévia sem achados (sem intrínsecos x86, LE byte-a-byte, SIGPIPE
+  portátil, stack ~70KB < 512KB, Clang limpo). Reativar com o log da
+  etapa Unit tests ou teste local num Mac. M2 só em larger pagos,
+  M3/M4 sem labels — essas máquinas via self-hosted (roteiro futuro).
 
 # Futuro (pós-13, planejado — não implementado, ver README "Roteiro futuro")- [ ] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
 - [ ] MCP server: expor `ask`/`decisions` como ferramentas MCP p/ OpenCode e agentes.
 - [ ] Pool LLM: fila própria com prioridade p/ inferências `laya-http` (hoje: slots + fallback imediato).
 - [ ] Testes em GPU: Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
 - [ ] Self-hosted M2-M4: documentar runner próprio (labels + serviço) rodando as etapas do CI.
+- [ ] CI macOS: ver Fase 14 (pausada com diagnóstico registrado).
 - [ ] Auditoria planejado × implementado: `Projeto.md` previa MuPDF/ONNX/GGUF local —
   implementado diverge de propósito (parser PDF próprio, TF 384d local, Laya via
   HTTP; ver `Projeto.md` § estado + `docs/laya.md`). Sem lacuna funcional aberta.

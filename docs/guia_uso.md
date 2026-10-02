@@ -223,6 +223,6 @@ Referência: **181 checks** unitários + 8 etapas de integração
 | `400` no `/v1/eval` citando teto | amostra > `--eval-max` | use `sample` menor |
 | `fallback=sim` no compile | PDF escaneado/imagem | sem texto extraível; use OCR antes |
 | etapa Laya SKIP | engine fora do ar | normal sem o Laya; ver `docs/laya.md` |
-| CI macOS | runners M1 ARM + Intel ativos desde a Fase 14 | M2+ só via self-hosted |
+| CI macOS | pausado: crash instantâneo nos unit tests (M1 e Intel, run 37075569182) | reativar com o log ou teste local num Mac |
 | sem HTTPS próprio | `serve` é HTTP puro | rode atrás de reverse-proxy (nginx/Caddy) em produção |
 | log de acesso | vai para `stderr` | hora, método, rota, código, ms (sem corpo nem chave) |

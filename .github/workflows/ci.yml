@@ -11,15 +11,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Fase 14 (2026-10-02): macOS de volta nas 2 arquiteturas
-        # hosted gratuitas — ARM64 M1 (macos-15) + x86_64 Intel
-        # (macos-15-intel). M2 so em larger pagos (labels
-        # -xlarge exigem runner da org; nao resolvem aqui) e M3/M4
-        # nao existem como labels — essas maquinas entram via
-        # self-hosted (ver README). Auditoria de portabilidade:
-        # sem intrinsecos x86, LE byte-a-byte, SIGPIPE portatil,
-        # stack das threads (~70KB) dentro dos 512KB do macOS.
-        os: [windows-latest, ubuntu-latest, macos-15, macos-15-intel]
+        # macOS PAUSADO (2026-10-02, Fase 14 revertida): reativado como
+        # macos-15 (M1) + macos-15-intel, build OK nas 2 archs mas os
+        # unit tests morrem instantaneamente (0s) em ambas — ver run
+        # 37075569182. Crash na partida, igual em ARM e Intel: NAO e
+        # bug ARM, e diagnostico sem o log. Reativar com o log da etapa
+        # Unit tests (ou teste local num Mac) + fix. M2 so em larger
+        # pagos, M3/M4 sem labels: essas maquinas via self-hosted.
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
