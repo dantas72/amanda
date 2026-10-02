@@ -156,12 +156,19 @@
   (80/80 recall@2; 40 novas auditadas, 5 descartadas por fora do
   domínio — usucapião/licitação/duration/guidance/silêncio).
 
-# Futuro (pós-13, planejado — não implementado, ver README "Roteiro futuro")
-- [ ] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
+- [x] Fase 14 — CI macOS de volta (2026-10-02):
+  matriz `windows + ubuntu + macos-15 (M1 ARM64) + macos-15-intel
+  (x86_64)`, bloqueante. Auditoria prévia: sem intrínsecos x86,
+  little-endian byte-a-byte, SIGPIPE portátil, stack das threads
+  (~70KB < 512KB do macOS), Clang OK (`-Wall -Wextra` limpo).
+  M2 só em larger pagos, M3/M4 sem labels — essas máquinas via
+  self-hosted (roteiro futuro).
+
+# Futuro (pós-13, planejado — não implementado, ver README "Roteiro futuro")- [ ] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
 - [ ] MCP server: expor `ask`/`decisions` como ferramentas MCP p/ OpenCode e agentes.
 - [ ] Pool LLM: fila própria com prioridade p/ inferências `laya-http` (hoje: slots + fallback imediato).
 - [ ] Testes em GPU: Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
-- [ ] CI macOS: reativar com diagnóstico em Mac real (falha ARM desde 7.2).
+- [ ] Self-hosted M2-M4: documentar runner próprio (labels + serviço) rodando as etapas do CI.
 - [ ] Auditoria planejado × implementado: `Projeto.md` previa MuPDF/ONNX/GGUF local —
   implementado diverge de propósito (parser PDF próprio, TF 384d local, Laya via
   HTTP; ver `Projeto.md` § estado + `docs/laya.md`). Sem lacuna funcional aberta.

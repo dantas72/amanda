@@ -11,10 +11,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-latest removido temporariamente (2026-10-01): unit tests
-        # falham no runner ARM64 desde a Fase 7.2; reativar na Fase 10
-        # com diagnostico local. Windows + Linux seguem verdes.
-        os: [windows-latest, ubuntu-latest]
+        # Fase 14 (2026-10-02): macOS de volta nas 2 arquiteturas
+        # hosted gratuitas — ARM64 M1 (macos-15) + x86_64 Intel
+        # (macos-15-intel). M2 so em larger pagos (labels
+        # -xlarge exigem runner da org; nao resolvem aqui) e M3/M4
+        # nao existem como labels — essas maquinas entram via
+        # self-hosted (ver README). Auditoria de portabilidade:
+        # sem intrinsecos x86, LE byte-a-byte, SIGPIPE portatil,
+        # stack das threads (~70KB) dentro dos 512KB do macOS.
+        os: [windows-latest, ubuntu-latest, macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

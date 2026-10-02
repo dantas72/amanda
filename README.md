@@ -35,9 +35,10 @@ cmake --build build --target version_bump   # paridade com build.bat (incrementa
 ## CI
 GitHub Actions (`.github/workflows/ci.yml`): build + testes unitários
 (`ctest`) + integração (`compile`/`inspect`/`ask`/serve smoke) em
-Windows e Linux (macOS temporariamente fora; ver `FASES.md`), com
-artefatos `amandac` + `amanda_tests` por release de CI (Fase 7.6).
-A etapa Laya é opcional (SKIP sem o engine).
+Windows, Linux e macOS (M1 ARM64 + Intel x86_64; ver `FASES.md`),
+com artefatos `amandac` + `amanda_tests` por release de CI (Fase 7.6).
+A etapa Laya é opcional (SKIP sem o engine). M2/M3/M4: sem labels
+hosted gratuitos — via self-hosted (ver Roteiro futuro).
 
 ## Uso
 ```sh
@@ -112,7 +113,7 @@ o engine Laya com fallback local automático (campo `"backend"`).
 
 ## Status das fases
 
-Fases 1–13 prontas (`FASES.md`): núcleo Windows em C puro, CMake+CI,
+Fases 1–14 prontas (`FASES.md`): núcleo Windows em C puro, CMake+CI,
 Laya via HTTP, SSE+embeddings, `eval`, `calibrate` (+`--apply` v3 e
 `--validacao`), extração PDF+, serve robusto e enterprise (pool,
 multi-pacote por `model`), release com artefatos, retrieval BM25 +
@@ -129,8 +130,7 @@ scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
 Referência: **181 checks** + pipeline (8 etapas) + gold (80 perguntas,
-recall@2). CI: Windows + Linux (`ctest`); macOS fora com diagnóstico
-pendente em Mac real.
+recall@2). CI: Windows + Linux + macOS (`ctest`; Intel e M1 ARM).
 
 ## Estrutura
 - `include/` headers públicos
@@ -147,7 +147,9 @@ pendente em Mac real.
 - **MCP server**: expor `ask`/`decisions` como ferramentas MCP para OpenCode e agentes.
 - **Pool LLM**: fila própria com prioridade para inferências `laya-http` (hoje: slots com fallback imediato).
 - **Testes em GPU**: repetir Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
-- **CI macOS**: reativar com diagnóstico em Mac real (falha ARM desde 7.2).
+- **CI macOS + self-hosted M2-M4**: documentar setup de runner
+  self-hosted (`self-hosted`, macOS, ARM64) para cobrir M2/M3/M4
+  com as mesmas etapas do CI (ver `.github/workflows/ci.yml`).
 
 ## Versão
 `version.bin` é a fonte da verdade, incrementada a cada `build.bat`.
