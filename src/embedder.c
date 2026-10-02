@@ -95,10 +95,75 @@ static void tokenizar_emit(char ***toks, int *n, int *cap, ByteBuf *cur) {
     if (cur->len < 2) { cur->len = 0; return; }
     buf_reserve(cur, 1);
     cur->data[cur->len] = '\0';
-    if (!eh_stopword((char *)cur->data)) {
-        if (*n >= *cap) { *cap *= 2; *toks = (char **)xrealloc(*toks, sizeof(char *) * (size_t)*cap); }
-        (*toks)[(*n)++] = xstrdup((char *)cur->data);
+    /* Fase 12.3 filtro junk: token gigante ou com char 5x repetido
+       (sujeira binaria de PDF: "AAAA...", "$$$") nunca vira termo. */
+    size_t L = cur->len;
+    if (L > 30) { cur->len = 0; return; }
+    {
+        int run = 1;
+        for (size_t i = 1; i < L; i++) {
+            if (cur->data[i] == cur->data[i - 1]) {
+                if (++run >= 5) { cur->len = 0; return; }
+            } else run = 1;
+        }
     }
+    if (eh_stopword((char *)cur->data)) { cur->len = 0; return; }
+    /* Fase 12.3 stemming PT conservador (ordem fixa, 1 passada,
+       travas de tamanho; deterministico: preserva matches exatos). */
+    {
+        char *w = (char *)cur->data;
+        size_t l = strlen(w);
+        int feito = 0;
+        /* -mente: rapidamente -> rapida */
+        if (!feito && l > 4 + 3 && strcmp(w + l - 5, "mente") == 0) { w[l - 5] = '\0'; l -= 5; feito = 1; }
+        /* -oes -> -ao: acoes -> acao, funcoes -> funcao */
+        if (!feito && l > 3 && strcmp(w + l - 3, "oes") == 0) {
+            w[l - 3] = '\0'; strcat(w, "ao"); l = strlen(w); feito = 1;
+        }
+        /* -ais/-eis/-ois/-uis -> -al/-el/-ol/-ul: profissionais -> profissional
+           (trava l>4 protege "pais", que vai a "paal" por essa regra) */
+        if (!feito && l > 4) {
+            const char *suf = w + l - 3;
+            char mapa = 0;
+            if (strcmp(suf, "ais") == 0) mapa = 'a';
+            else if (strcmp(suf, "eis") == 0) mapa = 'e';
+            else if (strcmp(suf, "ois") == 0) mapa = 'o';
+            else if (strcmp(suf, "uis") == 0) mapa = 'u';
+            if (mapa) { w[l - 3] = mapa; w[l - 2] = 'l'; w[l - 1] = '\0'; l -= 1; feito = 1; }
+        }
+        /* -ens -> -em: homens -> homem, bens -> bem */
+        if (!feito && l > 3 && strcmp(w + l - 3, "ens") == 0) {
+            w[l - 1] = 'm'; w[l] = '\0'; l -= 1; feito = 1;
+        }
+        /* -es apos consoante: investidores -> investidor, meses -> mes */
+        if (!feito && l > 4 && strcmp(w + l - 2, "es") == 0) {
+            char c = w[l - 3];
+            if (!(c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u')) {
+                w[l - 2] = '\0'; l -= 2; feito = 1;
+            }
+        }
+        /* plural -s: contratos -> contrato, anos -> ano (nunca apos 's') */
+        if (!feito && l > 3 && w[l - 1] == 's' && w[l - 2] != 's') {
+            w[l - 1] = '\0'; l -= 1; feito = 1;
+        }
+        /* infinitivo -ar/-er/-ir: falar -> fala (trava protege "mar"/"ser") */
+        if (!feito && l > 4 && w[l - 1] == 'r' &&
+            ((w[l - 2] == 'a') || (w[l - 2] == 'e') || (w[l - 2] == 'i'))) {
+            w[l - 1] = '\0'; l -= 1; feito = 1;
+        }
+        /* gerundio -ndo: falando -> fala */
+        if (!feito && l > 6 && strcmp(w + l - 3, "ndo") == 0) {
+            w[l - 3] = '\0'; l -= 3; feito = 1;
+        }
+        /* participio -ado/-ido: assinado -> assina (trava protege "dado") */
+        if (!feito && l > 5 &&
+            ((strcmp(w + l - 3, "ado") == 0) || (strcmp(w + l - 3, "ido") == 0))) {
+            w[l - 2] = '\0'; l -= 2; feito = 1;
+        }
+        (void)feito;
+    }
+    if (*n >= *cap) { *cap *= 2; *toks = (char **)xrealloc(*toks, sizeof(char *) * (size_t)*cap); }
+    (*toks)[(*n)++] = xstrdup((char *)cur->data);
     cur->len = 0;
 }
 

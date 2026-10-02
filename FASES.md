@@ -78,9 +78,24 @@
     (pagina OU `[p.N]`). Limitações conhecidas auditadas: RI→top1
     planejamento (RI correto em 2º), títulos sustentáveis→top1 p.61 com
     sujeira binária do PDF (correto em p.198/209) — ver backlog 12.3.
-  - [ ] 12.3 Rerank robusto (backlog): stemming PT, TF-IDF nos embeddings
-    (hoje TF puro c/ colisões favorece chunk curto/sujeira no cosseno),
-    filtro de chunks não-linguísticos, boost de proximidade de frase.
+  - [x] 12.3 Rerank robusto (2026-10-02, `amandac 1.0.31`, 131/131, gold
+    80/80): stemming PT conservador em `tokenizar()` (oes→ao, ais→al,
+    plural/verbo/gerúndio/particípio c/ travas; sem gênero); filtro junk
+    (token >30 chars ou char 5x, chunk inválido c/ <4 termos ou <40%
+    letras); BM25 c/ norma saturante raw/(raw+8) (max-norm colapsava
+    c/ outlier e entregava o rank ao cosseno ruidoso); phrase-boost +0.2
+    (janela de tokens, sem alloc por chunk — 3811 mallocs/query
+    estouravam a latência do Direito 447→503ms, revertido p/ 447ms).
+    Sem formato v3 (TF-IDF em embeddings adiado: BM25 já é o canal IDF).
+    Ganhos: títulos→top1 189 correto (era junk 61), RI→cap. RI 189
+    (era 374), polícia→frase exata 896, valores→definição legal 66.
+    Custo honesto: fidelidade sintética -2pp (CVM 88.65→86.58, IBRI
+    89.19→87.25, INVEST -0.4pp ruído; Direito ~84.5%) — queries naturais
+    melhoram, guardrail segue verde. 15 repins + 3 swaps auditados
+    (pergunta instável em 3 runs → reformulada p/ respondível).
+  - [ ] 12.4 Performance/índice (backlog): índice invertido (BM25 sem
+    retokenizar 3811 chunks/query; Direito 447ms perto do teto),
+    cache de embeddings de query, calibrate --apply.
 - [x] Pós-12.2 (2026-10-02, base completa + testes, sem código C):
   higiene `build/` (removidos 4 `.amanda` legados pré-7.4 superseded),
   `calibrate` por livro registrado em `docs/eval.md` (CVM 0.450/24/0.80,

@@ -14,13 +14,43 @@ static int cmp_rank(const void *a, const void *b) {
     return 0;
 }
 
+/* Fase 12.3: chunk com texto util? Sujeira binaria de PDF tem
+   poucas letras (controles, $, <, >) mesmo com 4+ tokens. */
+static int chunk_eh_texto(const char *texto) {
+    if (!texto || !texto[0]) return 0;
+    size_t letras = 0, total = 0;
+    for (const unsigned char *p = (const unsigned char *)texto; *p; p++) {
+        unsigned char c = *p;
+        if (c == ' ' || c == '\n' || c == '\t') { total++; continue; }
+        if (c < 128) {
+            total++;
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) letras++;
+        } else {
+            /* byte UTF-8 (acentos ja dobrados no tokenizar): conta como letra */
+            total++;
+            letras++;
+        }
+    }
+    if (total < 20) return 0;
+    /* 40%: tabela numerica legitima passa (~45-60%), sujeira
+       binaria (p.ex. chunk p.61 INVEST, ~16% letras) nao. */
+    return (letras * 100 >= total * 40) ? 1 : 0;
+}
+
 /* Fase 12.2: BM25 lexical (k1=1.2, b=0.75) com IDF por pacote.
    Substitui o overlap simples: termo raro pesa mais, stopwords ja
    filtradas em tokenizar(), normalizacao max-norm 0..1 por query
-   para fusao estavel com o cosseno (0.6*cos + 0.4*bm25). */
+   para fusao estavel com o cosseno (0.6*cos + 0.4*bm25).
+   Fase 12.3: tambem informa chunk valido (dl>=4 tokens; sujeira
+   binaria raramente tem 4+ termos apos o filtro junk) e hit de
+   frase (query normalizada contida no chunk) para o phrase-boost. */
 static void bm25_normas(const char *pergunta, Chunk *chunks, int num_chunks,
-                         float *norm_out) {
-    for (int i = 0; i < num_chunks; i++) norm_out[i] = 0.0f;
+                         float *norm_out, int *valido_out, int *frase_out) {
+    for (int i = 0; i < num_chunks; i++) {
+        norm_out[i] = 0.0f;
+        if (valido_out) valido_out[i] = 0;
+        if (frase_out) frase_out[i] = 0;
+    }
     int nq = 0;
     char **tq = tokenizar(pergunta, &nq);
     if (nq == 0) { liberar_tokens(tq, nq); return; }
@@ -48,7 +78,6 @@ static void bm25_normas(const char *pergunta, Chunk *chunks, int num_chunks,
     }
 
     const double k1 = 1.2, b = 0.75;
-    float bmax = 0.0f;
     float *raw = (float *)xcalloc((size_t)num_chunks, sizeof(float));
     for (int i = 0; i < num_chunks; i++) {
         double s = 0.0;
@@ -61,13 +90,31 @@ static void bm25_normas(const char *pergunta, Chunk *chunks, int num_chunks,
             s += idf[q] * ((double)tf * (k1 + 1.0) / denom);
         }
         raw[i] = (float)s;
-        if (raw[i] > bmax) bmax = raw[i];
     }
-    if (bmax > 0.0f) {
-        for (int i = 0; i < num_chunks; i++) norm_out[i] = raw[i] / bmax;
-    }
+    /* Fase 12.3: norma saturante raw/(raw+8) em vez de max-norm —
+       max-norm colapsa quando um outlier (tabela com termo 10x)
+       domina o max e achata todo o resto p/ ~0, deixando o cosseno
+       (ruidoso p/ chunk curto) decidir sozinho. */
+    for (int i = 0; i < num_chunks; i++)
+        norm_out[i] = raw[i] / (raw[i] + 8.0f);
     free(raw);
     free(idf);
+    /* Fase 12.3: validade (4+ termos e 40%+ letras) + hit de frase.
+       Frase = sequencia contigua de tokens (mesma semantica do
+       substring normalizado, sem alocar string por chunk: janela
+       direta sobre dt — 3811 mallocs/query matavam a latencia). */
+    for (int i = 0; i < num_chunks; i++) {
+        if (valido_out) valido_out[i] = (dl[i] >= 4 && chunk_eh_texto(chunks[i].texto)) ? 1 : 0;
+        if (frase_out && nq > 0 && dl[i] >= nq) {
+            for (int s = 0; s + nq <= dl[i]; s++) {
+                int ok = 1;
+                for (int q = 0; q < nq; q++) {
+                    if (strcmp(dt[i][s + q], tq[q]) != 0) { ok = 0; break; }
+                }
+                if (ok) { frase_out[i] = 1; break; }
+            }
+        }
+    }
     for (int i = 0; i < num_chunks; i++) liberar_tokens(dt[i], dl[i]);
     free(dt);
     free(dl);
@@ -82,15 +129,25 @@ RankItem *recuperar_chunks(const char *pergunta, Chunk *chunks, int num_chunks,
 
     Embeddings *eq = embed_query(pergunta);
     float *bmn = (float *)xcalloc((size_t)num_chunks, sizeof(float));
-    bm25_normas(pergunta, chunks, num_chunks, bmn);
+    int *val = (int *)xcalloc((size_t)num_chunks, sizeof(int));
+    int *fr = (int *)xcalloc((size_t)num_chunks, sizeof(int));
+    bm25_normas(pergunta, chunks, num_chunks, bmn, val, fr);
     RankItem *all = (RankItem *)xmalloc(sizeof(RankItem) * (size_t)num_chunks);
     for (int i = 0; i < num_chunks; i++) {
         float cos = cos_sim(eq->vetores, emb->vetores + (size_t)i * emb->dimensao, emb->dimensao);
         if (cos < 0) cos = 0;
         float score = 0.6f * cos + 0.4f * bmn[i];
+        /* Fase 12.3: chunk pobre nao ranqueia; frase exata +0.2 (teto 1). */
+        if (!val[i]) score = 0.0f;
+        else if (fr[i]) {
+            score += 0.2f;
+            if (score > 1.0f) score = 1.0f;
+        }
         all[i].indice_chunk = i;
         all[i].score = score;
     }
+    free(fr);
+    free(val);
     free(bmn);
     liberar_embeddings(eq);
     qsort(all, (size_t)num_chunks, sizeof(RankItem), cmp_rank);

@@ -121,4 +121,4 @@ scripts\test_pipeline.bat
 ## Versão
 `version.bin` é a fonte da verdade, incrementada a cada `build.bat`.
 Último build local:
-Build: `1.0.26`
+Build: `1.0.31`

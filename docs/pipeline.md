@@ -29,8 +29,9 @@
 6. **Serviço** — `amandac serve` expõe API compatível OpenAI
    (`/v1/chat/completions`, `/v1/decisions`, `/v1/models`,
    `/v1/amanda/info`, `/v1/embeddings` + SSE), com recuperação híbrida
-   (Fase 12.2: 0.6 cosseno + 0.4 BM25 com IDF por pacote, k1=1.2/b=0.75,
-   max-norm; antes: overlap simples), recusa calibrada
+   (Fase 12.2: 0.6 cosseno + 0.4 BM25 com IDF por pacote, k1=1.2/b=0.75;
+   Fase 12.3: norma saturante raw/(raw+8), stemming PT, filtro de chunks
+   não-linguísticos, phrase-boost +0.2), recusa calibrada
    (`--conf-center/--conf-slope/--limiar-recusa`, Fase 7.2),
    citação multi top-2 (`[p.X]` + `[p.Y]`) e backend
    sempre local.

@@ -1240,6 +1240,77 @@ static void test_fase12_retrieval(void) {
     }
 }
 
+static void test_fase123_rerank(void) {
+    printf("[fase123-rerank]\n");
+    {
+        int n = 0;
+        char **t = tokenizar("profissionais acoes investidores", &n);
+        int hp = 0, ha = 0, hi = 0;
+        for (int i = 0; i < n; i++) {
+            if (strcmp(t[i], "profissional") == 0) hp = 1;
+            if (strcmp(t[i], "acao") == 0) ha = 1;
+            if (strcmp(t[i], "investidor") == 0) hi = 1;
+        }
+        CHECK(hp && ha && hi, "stemming dobra plural p/ singular");
+        liberar_tokens(t, n);
+    }
+    {
+        int n = 0;
+        char **t = tokenizar("falando assinado funcoes", &n);
+        int hf = 0, ha = 0, hfu = 0;
+        for (int i = 0; i < n; i++) {
+            if (strcmp(t[i], "fala") == 0) hf = 1;
+            if (strcmp(t[i], "assina") == 0) ha = 1;
+            if (strcmp(t[i], "funcao") == 0) hfu = 1;
+        }
+        CHECK(hf && ha && hfu, "stemming dobra verbo/particula");
+        liberar_tokens(t, n);
+    }
+    {
+        char junk[64];
+        memset(junk, 'A', 50); junk[50] = '\0';
+        int n = -1;
+        char **t = tokenizar(junk, &n);
+        CHECK(n == 0, "token gigante junk descartado");
+        liberar_tokens(t, n);
+    }
+    {
+        Chunk ch[2];
+        memset(ch, 0, sizeof ch);
+        ch[0].texto = "titulos sustentaveis green bonds guia ICMA principios"; ch[0].pagina_inicio = 5;
+        ch[1].texto = "individuos encontraram de AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 2/28"; ch[1].pagina_inicio = 61;
+        Embeddings *e = gerar_embeddings(ch, 2);
+        int nout = 0;
+        RankItem *rk = recuperar_chunks("O que sao titulos sustentaveis?", ch, 2, e, 2, &nout);
+        CHECK(rk && rk[0].indice_chunk == 0, "chunk junk nao supera conteudo");
+        if (rk) free(rk);
+        liberar_embeddings(e);
+    }
+    {
+        Chunk ch[2];
+        memset(ch, 0, sizeof ch);
+        ch[0].texto = "contrato registrado em cartorio de titulos"; ch[0].pagina_inicio = 1;
+        ch[1].texto = "contrato assinado entre as partes presentes"; ch[1].pagina_inicio = 2;
+        Embeddings *e = gerar_embeddings(ch, 2);
+        int nout = 0;
+        RankItem *rk = recuperar_chunks("contrato assinado", ch, 2, e, 2, &nout);
+        CHECK(rk && rk[0].indice_chunk == 1, "frase exata ranqueia primeiro");
+        if (rk) free(rk);
+        liberar_embeddings(e);
+    }
+    {
+        Chunk ch[1];
+        memset(ch, 0, sizeof ch);
+        ch[0].texto = "oi de"; ch[0].pagina_inicio = 9;
+        Embeddings *e = gerar_embeddings(ch, 1);
+        int nout = 0;
+        RankItem *rk = recuperar_chunks("contrato assinado", ch, 1, e, 1, &nout);
+        CHECK(rk && rk[0].score == 0.0f, "chunk pobre (<4 termos) zera score");
+        if (rk) free(rk);
+        liberar_embeddings(e);
+    }
+}
+
 int main(void) {
 #ifndef _WIN32
     /* Mesmo motivo de src/main.c: teste com sockets nao pode morrer de SIGPIPE. */
@@ -1263,6 +1334,7 @@ int main(void) {
     test_serve_llm();
     test_fase10();
     test_fase12_retrieval();
+    test_fase123_rerank();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

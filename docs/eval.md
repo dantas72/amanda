@@ -121,3 +121,29 @@ Eval full (3 pequenos 100%; Direito 1993/33218 ≈ 6%):
 
 Nota: latência do Direito perto do teto (BM25 sobre 3811 chunks por
 query) — ver backlog 12.3/12.4 (índice invertido).
+
+## Recalibração + eval pós-12.3 (2026-10-02, `amandac 1.0.31)
+
+O scoring mudou (stemming, norma saturante, junk, phrase) → tabela
+acima (12.2) substituída:
+
+| pacote | sugerido (center/slope/limiar) | bal | TPR/TNR |
+|---|---|---|---|
+| cvm | 0.200/16.0/0.85 | 0.995 | 0.99/1.00 |
+| ibri | 0.200/22.0/0.90 | 0.999 | 1.00/1.00 |
+| invest | 0.250/12.0/0.65 | 0.999 | 1.00/1.00 |
+| direito | 0.350/28.0/0.20 | 1.000 | 1.00/1.00 |
+
+Eval full pós-12.3 (3 pequenos 100%; Direito ~1000 ≈ 3%):
+
+| pacote | amostradas | fidelidade | lat média |
+|---|---|---|---|
+| cvm | 5320 | 86.58% (-2.07pp vs 12.2) | 78.2 ms PASS |
+| ibri | 2415 | 87.25% (-1.94pp) | 31–36 ms PASS |
+| invest | 2498 | 88.23% (-0.40pp, ruído) | 33.4 ms PASS |
+| direito | ~1000 | ~84.5% (~-1.4pp) | ~447 ms PASS |
+
+Tradeoff registrado: queries naturais (gold) melhoram — junk top-1
+eliminado (títulos→189), RI→capítulo RI, frases exatas achadas —
+ao custo de ~2pp na fidelidade sintética (CVM/IBRI). Guardrail verde;
+gold 80/80 com 15 repins + 3 swaps auditados (ver CONTINUAR).
