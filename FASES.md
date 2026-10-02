@@ -170,7 +170,7 @@
 - [ ] Pool LLM: fila própria com prioridade p/ inferências `laya-http` (hoje: slots + fallback imediato).
 - [ ] Testes em GPU: Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
 - [ ] Self-hosted M2-M4: documentar runner próprio (labels + serviço) rodando as etapas do CI.
-- [ ] CI macOS: ver Fase 14 (pausada com diagnóstico registrado).
+- [ ] CI macOS: ver Fase 14 (pausada com diagnóstico registrado) e `docs/macos.md` (kit futuro).
 - [ ] Auditoria planejado × implementado: `Projeto.md` previa MuPDF/ONNX/GGUF local —
   implementado diverge de propósito (parser PDF próprio, TF 384d local, Laya via
   HTTP; ver `Projeto.md` § estado + `docs/laya.md`). Sem lacuna funcional aberta.

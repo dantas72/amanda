@@ -149,7 +149,7 @@ recall@2). CI: Windows + Linux (`ctest`); macOS pausado (ver `FASES.md`).
 - **Testes em GPU**: repetir Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
 - **CI macOS + self-hosted M2-M4**: reativar com o log do crash
   (run 37075569182, etapa Unit tests, 0s em M1 e Intel) ou teste local
-  num Mac; depois documentar runner self-hosted para M2/M3/M4.
+  num Mac; kit pronto em `docs/macos.md`.
 
 ## Versão
 `version.bin` é a fonte da verdade, incrementada a cada `build.bat`.
