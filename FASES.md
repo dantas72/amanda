@@ -81,3 +81,11 @@
   - [ ] 12.3 Rerank robusto (backlog): stemming PT, TF-IDF nos embeddings
     (hoje TF puro c/ colisões favorece chunk curto/sujeira no cosseno),
     filtro de chunks não-linguísticos, boost de proximidade de frase.
+- [x] Pós-12.2 (2026-10-02, base completa + testes, sem código C):
+  higiene `build/` (removidos 4 `.amanda` legados pré-7.4 superseded),
+  `calibrate` por livro registrado em `docs/eval.md` (CVM 0.450/24/0.80,
+  IBRI 0.450/16/0.85, INVEST 0.450/28/0.75, Direito 0.550/14/0.40),
+  eval full (CVM 88.65%, IBRI 89.19%, INVEST 88.63%, Direito 85.95%
+  em 1993; lat Direito 447ms PASS perto do teto), gold v3 20/livro
+  (80/80 recall@2; 40 novas auditadas, 5 descartadas por fora do
+  domínio — usucapião/licitação/duration/guidance/silêncio).

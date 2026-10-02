@@ -90,3 +90,34 @@ Resultados com extração completa (`eval --sample 0.1/0.2`):
 
 Fechamento do loop (CVM, `calibrate --sample 0.2` → 0.450/26.0/0.70):
 bal **0.500 → 0.950** (TPR 0.90/TNR 1.00).
+
+## Base completa + calibrate por livro (2026-10-02, `amandac 1.0.26`)
+
+Os 4 `build/*_t74.amanda` cobrem os PDFs integrais (falhas 0):
+CVM 412p/448 blocos/602 chunks/5320 perg, IBRI 161p/178/277/2415,
+INVEST 260p/253/284/2498, DIREITO 1348p/1393/3811/33218.
+
+`calibrate` por pacote (amostra 0.2; Direito 0.02):
+
+| pacote | sugerido (center/slope/limiar) | bal | TPR/TNR |
+|---|---|---|---|
+| cvm | 0.450/24.0/0.80 | 0.988 | 0.98/1.00 |
+| ibri | 0.450/16.0/0.85 | 0.964 | 0.93/1.00 |
+| invest | 0.450/28.0/0.75 | 0.994 | 0.99/1.00 |
+| direito | 0.550/14.0/0.40 | 0.980 | 0.96/1.00 |
+
+Uso no `serve`: `amandac serve --package build\cvm_teste74.amanda
+--port 8080 --conf-center 0.450 --conf-slope 24.0 --limiar-recusa 0.80`
+(trocar pelos valores da tabela por livro).
+
+Eval full (3 pequenos 100%; Direito 1993/33218 ≈ 6%):
+
+| pacote | amostradas | fidelidade | gap/ECE | lat média |
+|---|---|---|---|---|
+| cvm | 5320 | 88.65% | 0.111 | 60.9 ms PASS |
+| ibri | 2415 | 89.19% | — | 27.1 ms PASS |
+| invest | 2498 | 88.63% | — | 31.1 ms PASS |
+| direito | 1993 | 85.95% | — | 446.9 ms PASS |
+
+Nota: latência do Direito perto do teto (BM25 sobre 3811 chunks por
+query) — ver backlog 12.3/12.4 (índice invertido).
