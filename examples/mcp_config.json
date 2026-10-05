@@ -1,0 +1,10 @@
+{
+  "_comentario": "Modelo para clientes MCP (OpenCode, Claude Desktop, etc). Troque CAMINHO_AMANDAC e CAMINHO_PACOTE pelos caminhos reais. Multi-pacote: repita --package nome=caminho.",
+  "mcpServers": {
+    "amanda": {
+      "command": "CAMINHO_AMANDAC/amandac",
+      "args": ["mcp", "--package", "CAMINHO_PACOTE/exemplo.amanda"],
+      "env": {}
+    }
+  }
+}

@@ -52,6 +52,7 @@ amandac eval --package exemplo.amanda --sample 0.1
 amandac calibrate --package exemplo.amanda --sample 0.5 --apply
 amandac serve --package exemplo.amanda --port 8080
 amandac serve --package cvm=livro1.amanda --package ibri=livro2.amanda --port 8080  # multi (Fase 13)
+amandac mcp --package exemplo.amanda   # MCP server via stdio (OpenCode/agentes, ver docs/mcp.md)
 amandac version
 ```
 
@@ -111,9 +112,35 @@ próprio (produção atrás de reverse-proxy). Multi-pacote por `"model"`
 (ver `docs/api.md`). Com `--backend laya-http`, chat/decisions tentam
 o engine Laya com fallback local automático (campo `"backend"`).
 
+## MCP server (ask/decisions via OpenCode e agentes)
+
+```sh
+amandac mcp --package exemplo.amanda
+```
+
+Servidor MCP sobre stdio (JSON-RPC por linha, log em `stderr`):
+ferramentas `ask`, `decisions`, `inspect`, `version`; multi-pacote
+por `model` como no `serve`. Modelo em `examples/mcp_config.json`,
+detalhes em `docs/mcp.md`.
+
+## Docker
+
+```sh
+docker build -t amandac .
+docker run --rm -p 8080:8080 -v /seus/amanda:/data amandac
+```
+
+Imagem multi-stage (testes unitários rodam no build); entrypoint
+serve todos os `/data/*.amanda`, ou executa qualquer comando
+(`mcp`, `inspect`, ...). Variáveis (`PORT`, `AMANDA_API_KEY`,
+`WORKERS`, calibração...) em `docs/docker.md`.
+
 ## Status das fases
 
-Fases 1–13 prontas (`FASES.md`): núcleo Windows em C puro, CMake+CI,
+Fases 1–13 prontas (`FASES.md`) + **MCP server** (`amandac mcp`:
+ask/decisions/inspect/version via stdio, `docs/mcp.md`) + **Docker**
+(imagem multi-stage com testes no build, `docs/docker.md`):
+núcleo Windows em C puro, CMake+CI,
 Laya via HTTP, SSE+embeddings, `eval`, `calibrate` (+`--apply` v3 e
 `--validacao`), extração PDF+, serve robusto e enterprise (pool,
 multi-pacote por `model`), release com artefatos, retrieval BM25 +
@@ -125,17 +152,18 @@ Direito 84.00%; latência 0.3–5ms; probes 3/3; gold 75/80 auditado
 
 ## Testes
 ```bat
-gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
+gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-Referência: **181 checks** + pipeline (8 etapas) + gold (80 perguntas,
-recall@2). CI: Windows + Linux (`ctest`); macOS pausado (ver `FASES.md`).
+Referência: **198 checks** + pipeline (10 etapas, incl. MCP smoke)
++ gold (80 perguntas, recall@2). CI: Windows + Linux (`ctest` + MCP smoke
++ Docker build); macOS pausado (ver `FASES.md`).
 
 ## Estrutura
 - `include/` headers públicos
 - `src/` implementação C11 sem dependências externas (só `ws2_32` no Windows)
-- `docs/` especificações de formato (`formato_amanda.md`), pipeline, API, eval, Laya, guia de uso, tutorial empresarial
+- `docs/` especificações de formato (`formato_amanda.md`), pipeline, API, eval, Laya, guia de uso, tutorial empresarial, MCP (`mcp.md`), Docker (`docker.md`)
 - `templates/` enunciados das perguntas tipadas (+ packs `empresas/`: compliance, financeiro, jurídico, atendimento)
 - `examples/` exemplo, `config.yaml`, fixtures de smoke e golds de regressão
 - `tests/` testes unitários em C
@@ -143,8 +171,6 @@ recall@2). CI: Windows + Linux (`ctest`); macOS pausado (ver `FASES.md`).
 - `version.bin` versão lida pelo binário e incrementada a cada `build.bat`
 
 ## Roteiro futuro (pós-13, documentado; não implementado)
-- **Docker**: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
-- **MCP server**: expor `ask`/`decisions` como ferramentas MCP para OpenCode e agentes.
 - **Pool LLM**: fila própria com prioridade para inferências `laya-http` (hoje: slots com fallback imediato).
 - **Testes em GPU**: repetir Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
 - **CI macOS + self-hosted M2-M4**: reativar com o log do crash
@@ -154,4 +180,4 @@ recall@2). CI: Windows + Linux (`ctest`); macOS pausado (ver `FASES.md`).
 ## Versão
 `version.bin` é a fonte da verdade, incrementada a cada `build.bat`.
 Último build local:
-Build: `1.0.34`
+Build: `1.0.37`

@@ -91,6 +91,14 @@ jobs:
         shell: bash
         run: sh scripts/check_laya_llm.sh || true
 
+      - name: MCP smoke (stdio)
+        shell: bash
+        run: sh scripts/check_mcp.sh
+
+      - name: Docker build (validates Dockerfile + unit tests in image)
+        if: matrix.os == 'ubuntu-latest'
+        run: docker build -t amandac .
+
       - name: Release artifacts (Fase 7.6)
         uses: actions/upload-artifact@v4
         with:

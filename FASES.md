@@ -155,7 +155,6 @@
   em 1993; lat Direito 447ms PASS perto do teto), gold v3 20/livro
   (80/80 recall@2; 40 novas auditadas, 5 descartadas por fora do
   domínio — usucapião/licitação/duration/guidance/silêncio).
-
 - [ ] Fase 14 — CI macOS (PAUSADA 2026-10-02, revertida p/ win+linux):
   reativado como `macos-15` (M1) + `macos-15-intel`, build OK nas 2
   archs mas unit tests morrem em 0s em ambas (run 37075569182) —
@@ -165,8 +164,10 @@
   etapa Unit tests ou teste local num Mac. M2 só em larger pagos,
   M3/M4 sem labels — essas máquinas via self-hosted (roteiro futuro).
 
-# Futuro (pós-13, planejado — não implementado, ver README "Roteiro futuro")- [ ] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
-- [ ] MCP server: expor `ask`/`decisions` como ferramentas MCP p/ OpenCode e agentes.
+# Futuro (pós-13: Docker + MCP entregues 2026-10-05, `amandac 1.0.37`,
+testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
+- [x] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
+- [x] MCP server: expor `ask`/`decisions` como ferramentas MCP p/ OpenCode e agentes.
 - [ ] Pool LLM: fila própria com prioridade p/ inferências `laya-http` (hoje: slots + fallback imediato).
 - [ ] Testes em GPU: Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
 - [ ] Self-hosted M2-M4: documentar runner próprio (labels + serviço) rodando as etapas do CI.
@@ -174,3 +175,27 @@
 - [ ] Auditoria planejado × implementado: `Projeto.md` previa MuPDF/ONNX/GGUF local —
   implementado diverge de propósito (parser PDF próprio, TF 384d local, Laya via
   HTTP; ver `Projeto.md` § estado + `docs/laya.md`). Sem lacuna funcional aberta.
+
+- [x] Fase MCP/Docker (2026-10-05, escopo confirmado Skill nº5: Docker + MCP):
+  - `amandac mcp` (`include/mcp.h`, `src/mcp.c`): MCP stdio JSON-RPC
+    (linha + framing LSP `Content-Length`), métodos `initialize`/`ping`/
+    `tools/list`/`tools/call`, `notifications/*` sem resposta; erros
+    `-32700/-32601/-32602` com `id` verbatim; ferramentas `ask`
+    (texto + confiança/página/citação), `decisions` (JSON cru),
+    `inspect`, `version`; multi-pacote por `model` (mesma regra do
+    serve); calibração v3 por pacote (`usar_calib_pkg`), flags CLI
+    prevalecem, `--ignore-calib` como no `ask`; stdout só JSON-RPC.
+  - `Dockerfile` multi-stage (build roda `amanda_tests`; runtime
+    debian-slim, usuário sem root) + `scripts/docker-entrypoint.sh`
+    (serve todos `/data/*.amanda`, env `PORT/HOST/WORKERS/chave/
+    calibração/backend`; argv ≠ serve executa direto) +
+    `.dockerignore` + `docs/docker.md` + `docs/mcp.md` +
+    `examples/mcp_config.json` (modelo).
+  - Testes 198/198 (+17 `test_mcp`: protocolo, ferramentas, erros,
+    ids, multi); `scripts/check_mcp.bat/.sh` + `check_docker.bat/.sh`
+    (SKIP sem docker); pipeline 10 etapas; CI com MCP smoke (win+
+    linux) e `docker build` no ubuntu.
+  - Bugs achados no caminho: `-Wcomment` por `/*` em comentário de
+    `mcp.h` (zero warnings novos, como exige o projeto);
+    `strncmp(method, "notifications/", 16)` com tamanho errado
+    (notificação respondia — pego pelo teste, corrigido p/ 14).

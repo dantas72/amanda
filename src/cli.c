@@ -1,5 +1,6 @@
 #include "cli.h"
 #include "amanda.h"
+#include "mcp.h"
 #include "pdf_extractor.h"
 #include "chunker.h"
 #include "embedder.h"
@@ -35,6 +36,10 @@ static void print_uso(void) {
     printf("  amandac calibrate --package <arq.amanda> [--sample 0.5] [--seed 42] [--json] [--apply] [--output <arq.amanda>]\n");
     printf("                  [--validacao <gold.json>] (repetivel; naturais como positivos + recall@1)\n");
     printf("  amandac version\n");
+    printf("  amandac mcp     --package <arq.amanda> [--package <outro.amanda>] [--top-k 3]\n");
+    printf("                  [--conf-center F] [--conf-slope F] [--limiar-recusa F] [--ignore-calib]\n");
+    printf("                  [--backend local|laya-http] [--laya-url URL] [--laya-timeout-ms MS]\n");
+    printf("  (mcp: servidor MCP via stdio — stdin/stdout JSON-RPC; log em stderr; multi como no serve)\n");
     printf("Entradas aceitas: .pdf .txt .csv .json\n");
     printf("Calibracao (Fase 6): --conf-center F --conf-slope F --limiar-recusa F (ask, eval)\n");
     printf("Fase 12.4: ask/eval/serve usam a calibracao gravada no pacote (v3) quando as flags\n");
@@ -601,8 +606,46 @@ static int cmd_calibrate(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_mcp(int argc, char **argv) {
+    const char *specs[SRV_MAX_PKGS];
+    int n_specs = 0;
+    for (int i = 0; i < argc - 1 && n_specs < SRV_MAX_PKGS; i++) {
+        if (strcmp(argv[i], "--package") == 0 && argv[i + 1])
+            specs[n_specs++] = argv[i + 1];
+    }
+    if (n_specs == 0) { fprintf(stderr, "mcp: --package obrigatorio\n"); return 2; }
+    int topk = atoi(flag_val(argc, argv, "--top-k", "3"));
+
+    DecisionConfig base;
+    memset(&base, 0, sizeof base);
+    base.limiar_confianca = 0.7f;
+    base.top_k = topk > 0 ? topk : 3;
+    fill_backend(&base, argc, argv);
+    fill_calib(&base, argc, argv);
+    {
+        const char *lt = flag_val(argc, argv, "--laya-timeout-ms", NULL);
+        if (lt) base.laya_timeout_ms = atoi(lt);
+    }
+    if (base.limiar_recusa == 0.0f) base.limiar_recusa = 0.3f;
+
+    McpCtx ctx;
+    char *merr = NULL;
+    if (mcp_ctx_init(&ctx, specs, n_specs, &base, base.top_k, &merr) != 0) {
+        fprintf(stderr, "mcp: %s\n", merr ? merr : "?");
+        free(merr);
+        return 1;
+    }
+    /* --ignore-calib: forca o padrao historico (flags CLI continuam
+     * valendo, como no ask). */
+    if (flag_bool(argc, argv, "--ignore-calib")) ctx.usar_calib_pkg = 0;
+    int rc = mcp_run(&ctx);
+    mcp_ctx_free(&ctx);
+    return rc;
+}
+
 int cli_main(int argc, char **argv) {
     if (argc < 2) { print_uso(); return 2; }
+    if (strcmp(argv[1], "mcp") == 0) return cmd_mcp(argc - 1, argv + 1);
     if (strcmp(argv[1], "compile") == 0) return cmd_compile(argc - 1, argv + 1);
     if (strcmp(argv[1], "serve") == 0) return cmd_serve(argc - 1, argv + 1);
     if (strcmp(argv[1], "ask") == 0) return cmd_ask(argc - 1, argv + 1);

@@ -1,0 +1,10 @@
+.git/
+.github/
+build/
+pdf/
+models/*.gguf
+models/*.onnx
+models/*.bin
+*.exe
+*.amanda
+.Jimi/

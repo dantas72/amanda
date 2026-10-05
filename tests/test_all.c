@@ -14,6 +14,7 @@
 #include "eval.h"
 #include "calibra.h"
 #include "config.h"
+#include "mcp.h"
 #include "server.h"
 #include "utils.h"
 
@@ -1650,6 +1651,104 @@ static void test_serve_multi(void) {
     g_t75_port = T75_PORT;
 }
 
+static void test_mcp(void) {
+    printf("[mcp]\n");
+    Chunk *ch = (Chunk *)xcalloc(2, sizeof(Chunk));
+    ch[0].texto = xstrdup("chunk um sobre entropia e termodinamica");
+    ch[0].hash = xstrdup("mcp11111"); ch[0].pagina_inicio = 1; ch[0].pagina_fim = 1; ch[0].num_tokens = 5;
+    ch[1].texto = xstrdup("chunk dois sobre energia e trabalho");
+    ch[1].hash = xstrdup("mcp22222"); ch[1].pagina_inicio = 2; ch[1].pagina_fim = 2; ch[1].num_tokens = 5;
+    Embeddings *e = gerar_embeddings(ch, 2);
+    QuestionGenConfig qc = {1, 1, 1};
+    int nq = 0;
+    PerguntaTipada *qs = gerar_perguntas(ch, 2, &qc, &nq);
+    AmandaPackage pkg;
+    memset(&pkg, 0, sizeof pkg);
+    pkg.titulo = xstrdup("mcp-teste");
+    pkg.autor = xstrdup("amanda-tests");
+    pkg.data = xstrdup("2026-10-05");
+    pkg.idioma = xstrdup("pt-BR");
+    pkg.versao_app = xstrdup("1.0.1");
+    pkg.chunks = ch; pkg.num_chunks = 2;
+    pkg.embeddings = e;
+    pkg.perguntas = qs; pkg.num_perguntas = nq;
+    char *erro = NULL;
+    const char *tmp = "amanda_test_mcp.tmp";
+    CHECK(empacotar_amanda(&pkg, tmp, &erro) == 0, "mcp: empacota pacote de teste");
+    DecisionConfig base;
+    memset(&base, 0, sizeof base);
+    base.limiar_confianca = 0.7f;
+    base.top_k = 3;
+    base.limiar_recusa = 0.3f;
+    const char *specs[1];
+    specs[0] = tmp;
+    McpCtx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    char *merr = NULL;
+    CHECK(mcp_ctx_init(&ctx, specs, 1, &base, 3, &merr) == 0, "mcp: ctx init carrega pacote");
+    if (ctx.n_pkgs == 1) {
+        char *r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}");
+        CHECK(r && strstr(r, "protocolVersion") && strstr(r, "\"id\":1") && strstr(r, "amandac"), "mcp: initialize com id numerico");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}");
+        CHECK(r == NULL, "mcp: notificacao sem resposta");
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}");
+        CHECK(r && strstr(r, "\"ask\"") && strstr(r, "\"decisions\"") && strstr(r, "\"inspect\"") && strstr(r, "\"version\""), "mcp: tools/list expoe 4 ferramentas");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"ask\",\"arguments\":{\"pergunta\":\"o que e entropia?\"}}}");
+        CHECK(r && strstr(r, "\"text\"") && strstr(r, "confianca") && strstr(r, "entropia"), "mcp: ask responde com texto e confianca");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"decisions\",\"arguments\":{\"pergunta\":\"o que e entropia?\"}}}");
+        CHECK(r && strstr(r, "probabilidade") && strstr(r, "pagina"), "mcp: decisions com JSON completo");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"ask\",\"arguments\":{}}}");
+        CHECK(r && strstr(r, "-32602"), "mcp: ask sem pergunta = invalid params");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"inexistente\",\"arguments\":{}}}");
+        CHECK(r && strstr(r, "-32602"), "mcp: ferramenta desconhecida = invalid params");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"naoexiste\",\"params\":{}}");
+        CHECK(r && strstr(r, "-32601"), "mcp: metodo desconhecido = method not found");
+        free(r);
+        r = mcp_handle_line(&ctx, "isto nao e json");
+        CHECK(r && strstr(r, "-32700"), "mcp: lixo = parse error");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":\"a-b\",\"method\":\"ping\"}");
+        CHECK(r && strstr(r, "\"id\":\"a-b\""), "mcp: id string com eco verbatim");
+        free(r);
+        r = mcp_handle_line(&ctx, "   ");
+        CHECK(r == NULL, "mcp: linha vazia sem resposta");
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"ask\",\"arguments\":{\"pergunta\":\"entropia\",\"model\":\"nope\"}}}");
+        CHECK(r && strstr(r, "isError") && strstr(r, "desconhecido"), "mcp: model desconhecido = isError com lista");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"inspect\",\"arguments\":{}}}");
+        CHECK(r && strstr(r, "chunks"), "mcp: inspect expoe chunks");
+        free(r);
+        r = mcp_handle_line(&ctx, "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"version\",\"arguments\":{}}}");
+        CHECK(r && strstr(r, "amandac"), "mcp: version informa amandac");
+        free(r);
+        mcp_ctx_free(&ctx);
+    } else {
+        printf("  erro mcp ctx: %s\n", merr ? merr : "?");
+        free(merr);
+    }
+    {
+        McpCtx bad;
+        memset(&bad, 0, sizeof bad);
+        const char *bs[1];
+        bs[0] = "amanda_test_inexistente.tmp";
+        char *be = NULL;
+        CHECK(mcp_ctx_init(&bad, bs, 1, &base, 3, &be) != 0, "mcp: ctx init falha com pacote inexistente");
+        free(be);
+    }
+    remove(tmp);
+    free(pkg.titulo); free(pkg.autor); free(pkg.data);
+    free(pkg.idioma); free(pkg.versao_app);
+    liberar_chunks(ch, 2);
+    liberar_embeddings(e);
+    liberar_perguntas(qs, nq);
+}
+
 int main(void) {
 #ifndef _WIN32
     /* Mesmo motivo de src/main.c: teste com sockets nao pode morrer de SIGPIPE. */
@@ -1677,6 +1776,7 @@ int main(void) {
     test_fase124();
     test_fase124b();
     test_serve_multi();
+    test_mcp();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }
