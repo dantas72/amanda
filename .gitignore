@@ -21,3 +21,5 @@ CONTINUAR.md
 pdf/
 # config local com endpoints (sem segredos, mas pessoal; o modelo e examples/amanda.json)
 /amanda.json
+# segredos locais (chaves de API em KEY=valor; o modelo e examples/amandac.conf)
+/amandac.conf

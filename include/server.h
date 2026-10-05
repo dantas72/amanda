@@ -68,8 +68,14 @@ int server_run(const ServerConfig *cfg);
 char *amanda_resolve_api_key(const char *flag, const char *file);
 
 /* Generico para segredos de backends (TYPESAFE_API_KEY,
-   DEEPSEEK_API_KEY...). Mesma precedencia e higiene; zere com memset
-   apos copiar. */
+   DEEPSEEK_API_KEY...). Precedencia: flag > env > --key-file >
+   amandac.conf (KEY=valor, ver abaixo). Mesma higiene; zere com
+   memset apos copiar. */
 char *amanda_resolve_secret(const char *flag, const char *env, const char *file);
+
+/* Le UMA chave de arquivo KEY=valor (amandac.conf ou --key-file no
+ * formato KEY=valor). Ignora # comentarios, vazias e aspas em volta.
+ * Retorna malloc ou NULL. Usado pelo resolver e pelos testes. */
+char *amanda_conf_ler_chave(const char *path, const char *env);
 
 #endif

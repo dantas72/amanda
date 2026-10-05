@@ -70,8 +70,11 @@ typedef struct {
     int laya_queue_ms;
 } ReqCtx;
 
-/* Fase 13: chave via flag > env AMANDA_API_KEY > arquivo (trim).
-   Retorna malloc (free) ou NULL = aberto. Nunca logar. */
+/* Fase 13 + reais: flag > env > --key-file (KEY=valor ou raw) >
+   amandac.conf local (KEY=valor, gitignored; só sem --key-file).
+   Retorna malloc (free) ou NULL. Nunca logar. */
+static char *conf_lookup(char *txt, const char *env);
+static const char *conf_path(void);
 char *amanda_resolve_secret(const char *flag, const char *envname, const char *file) {
     if (flag && flag[0]) return xstrdup(flag);
     if (envname && envname[0]) {
@@ -79,26 +82,94 @@ char *amanda_resolve_secret(const char *flag, const char *envname, const char *f
         if (env && env[0]) return xstrdup(env);
     }
     if (file && file[0]) {
+        /* Arquivo explicito e terminal (nao cai para o conf):
+         * tenta KEY=valor, senao raw com trim (vale p/ base64 com '=').
+         * Nao achou: NULL. */
         char *t = read_file_text(file);
+        char *k = NULL;
         if (t) {
-            /* trim: pula brancos iniciais, corta finais */
-            char *s = t;
-            while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') s++;
-            size_t n = strlen(s);
-            while (n > 0 && (s[n-1] == ' ' || s[n-1] == '\t' || s[n-1] == '\r' || s[n-1] == '\n'))
-                s[--n] = '\0';
-            char *k = xstrdup(s);
+            if (envname && envname[0]) k = conf_lookup(t, envname);
+            if (!k || !k[0]) {
+                free(k);
+                k = NULL;
+                char *s = t;
+                while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') s++;
+                size_t n = strlen(s);
+                while (n > 0 && (s[n-1] == ' ' || s[n-1] == '\t' || s[n-1] == '\r' || s[n-1] == '\n'))
+                    s[--n] = '\0';
+                if (s[0]) k = xstrdup(s);
+            }
             free(t);
-            if (k[0]) return k;
-            free(k);
-            return NULL;
         }
+        if (k && k[0]) return k;
+        free(k);
+        return NULL;
+    }
+    if (envname && envname[0]) {
+        char *k = amanda_conf_ler_chave(conf_path(), envname);
+        if (k && k[0]) return k;
+        free(k);
     }
     return NULL;
 }
 
 char *amanda_resolve_api_key(const char *flag, const char *file) {
     return amanda_resolve_secret(flag, "AMANDA_API_KEY", file);
+}
+
+/* Arquivo local de segredos (NUNCA commitado, ver .gitignore):
+ * ./amandac.conf no formato KEY=valor, uma por linha.
+ * AMANDA_CONF troca o caminho (testes, multiplos ambientes). */
+static const char *conf_path(void) {
+    const char *e = getenv("AMANDA_CONF");
+    return (e && e[0]) ? e : "./amandac.conf";
+}
+
+/* Busca KEY=valor em texto ja lido (ultima ocorrencia vence).
+ * Ignora # comentarios, linhas sem '=', vazias e aspas em volta. */
+static char *conf_lookup(char *txt, const char *env) {
+    char *out = NULL;
+    size_t el = strlen(env);
+    for (char *lin = txt; lin && *lin; ) {
+        char *nl = strchr(lin, '\n');
+        if (nl) *nl = '\0';
+        char *prox = nl ? nl + 1 : NULL;
+        char *cr = strchr(lin, '\r');
+        if (cr) *cr = '\0';
+        char *t = lin;
+        while (*t == ' ' || *t == '\t') t++;
+        if (!*t || *t == '#') { lin = prox; continue; }
+        char *eq = strchr(t, '=');
+        if (!eq) { lin = prox; continue; }
+        *eq = '\0';
+        char *k = t;
+        char *v = eq + 1;
+        while (*v == ' ' || *v == '\t') v++;
+        size_t n = strlen(v);
+        while (n > 0 && (v[n-1] == ' ' || v[n-1] == '\t')) v[--n] = '\0';
+        if (n >= 2 && ((v[0] == '"' && v[n-1] == '"') || (v[0] == '\'' && v[n-1] == '\''))) {
+            v[n-1] = '\0';
+            v++;
+        }
+        char *ke = k + strlen(k);
+        while (ke > k && (ke[-1] == ' ' || ke[-1] == '\t')) ke--;
+        *ke = '\0';
+        if (strlen(k) == el && strcmp(k, env) == 0 && v[0]) {
+            free(out);
+            out = xstrdup(v);
+        }
+        lin = prox;
+    }
+    return out;
+}
+
+char *amanda_conf_ler_chave(const char *path, const char *env) {
+    if (!path || !path[0] || !env || !env[0]) return NULL;
+    char *txt = read_file_text(path);
+    if (!txt) return NULL;
+    char *out = conf_lookup(txt, env);
+    free(txt);
+    return out;
 }
 
 /* Fase 13: log de acesso em stderr (sem corpo, sem chave).

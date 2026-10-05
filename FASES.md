@@ -231,7 +231,7 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
 
 - [x] Fase Backends reais (2026-10-06, escopo Skill nº5 "tudo":
   TypeSafe/JEV + DeepSeek + amanda.json + exemplos + pipeline real;
-  `amandac 1.0.45`, testes 252/252):
+  `amandac 1.0.46`, testes 263/263):
   - Transporte `http_post_json` (`laya_backend`): `http://` pelo
     socket nativo, `https://` via curl do sistema (TLS real, Bearer
     por arquivo de headers — nunca na linha de comando); Bearer em
@@ -268,3 +268,9 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
   - Docs: `docs/typesafe.md`, `docs/deepseek.md`,
     `examples/amanda.json` + `typesafe_request.json`, READMEs PT/EN/
     RU/ZH, `docs/docker.md`, guia.
+  - Pós-entrega (pedido do usuário): `amandac.conf` (`KEY=valor` na
+    raiz, gitignored, template em `examples/`) como fonte de chaves:
+    precedência flag > env > `--key-file` (KEY=valor ou raw) >
+    conf (`AMANDA_CONF` troca o caminho); `check_typesafe/deepseek`
+    (`.bat`+`.sh`) detectam a chave no conf sem exibi-la; +11 testes
+    (parser, cadeia, overlay). Total 263/263.

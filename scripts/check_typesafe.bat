@@ -15,6 +15,10 @@ if not exist build\exemplo.amanda (
   if errorlevel 1 exit /b 1
 )
 set TS_OUT=%TEMP%\amanda_ts_out.json
+set HAS_TS_KEY=0
+if defined TYPESAFE_API_KEY set HAS_TS_KEY=1
+findstr /r /c:"^TYPESAFE_API_KEY=" amandac.conf >nul 2>nul
+if not errorlevel 1 set HAS_TS_KEY=1
 set HAS_NIMBLE=0
 curl.exe -s --max-time 5 http://127.0.0.1:11434/api/tags -o "%TEMP%\amanda_ollama.json" 2>nul
 findstr /c:"nimble" "%TEMP%\amanda_ollama.json" >nul 2>nul
@@ -33,8 +37,8 @@ if errorlevel 1 (
 )
 echo [typesafe] nimble local: OK, julgamento JEV com grounding local
 :CLOUD
-if not defined TYPESAFE_API_KEY (
-  echo [typesafe] SKIP: TYPESAFE_API_KEY ausente, sem teste nuvem
+if not "%HAS_TS_KEY%"=="1" (
+  echo [typesafe] SKIP: sem TYPESAFE_API_KEY e sem amandac.conf com a chave, sem teste nuvem
   goto BOOKS
 )
 echo [typesafe] nuvem api.typesafe.ai com jev-latest...
@@ -47,7 +51,7 @@ if errorlevel 1 (
 )
 echo [typesafe] nuvem: OK
 :BOOKS
-if not defined TYPESAFE_API_KEY (
+if not "%HAS_TS_KEY%"=="1" (
   echo [typesafe] livros: SKIP sem nuvem, nimble local e lento demais por pergunta
   echo [OK] typesafe smoke passou.
   exit /b 0

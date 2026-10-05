@@ -86,8 +86,9 @@ DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend d
 
 `typesafe-http`（别名 `jev`）：真实 noul 裁决——TypeSafe 云
 `api.typesafe.ai` 或本地 Ollama nimble——在本地 grounding 之上校准
-置信度；`deepseek-http`：经 DeepSeek 云重写。密钥经标志/环境/文件
-（永不记入日志，永不写入 `amanda.json`）；端点与模型在
+置信度；`deepseek-http`：经 DeepSeek 云重写。密钥经标志/环境/文件/
+`amandac.conf`（永不记入日志，永不写入 `amanda.json`——复制
+`examples/amandac.conf`）；端点与模型在
 `--config-json`（`examples/amanda.json`）。诚实的本地回退
 （`"backend"` 字段）。真实流水线：`scripts/check_typesafe.bat` +
 `scripts/check_deepseek.bat`（无 Ollama/密钥时 SKIP）。详见
@@ -170,7 +171,7 @@ gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-基准：**252 项检查** + 流水线（12 步，含 MCP smoke 与诚实 SKIP 的真实后端）+ gold（80
+基准：**263 项检查** + 流水线（12 步，含 MCP smoke 与诚实 SKIP 的真实后端）+ gold（80
 问，recall@2）。CI：Windows + Linux（`ctest` + MCP smoke +
 Docker 构建）；macOS 已暂停（见 `FASES.md`）。
 
@@ -193,4 +194,4 @@ Docker 构建）；macOS 已暂停（见 `FASES.md`）。
 ## 版本
 `version.bin` 是唯一的版本来源，每次 `build.bat` 递增。
 最近一次本地构建：
-Build: `1.0.45`
+Build: `1.0.46`

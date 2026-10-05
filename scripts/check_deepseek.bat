@@ -7,10 +7,14 @@ if not exist amandac.exe (
   echo [ERRO] amandac.exe nao encontrado. Rode build.bat primeiro.
   exit /b 1
 )
-if not defined DEEPSEEK_API_KEY (
-  echo [deepseek] SKIP: DEEPSEEK_API_KEY ausente
-  exit /b 0
-)
+set HAS_DS_KEY=0
+if defined DEEPSEEK_API_KEY set HAS_DS_KEY=1
+findstr /r /c:"^DEEPSEEK_API_KEY=" amandac.conf >nul 2>nul
+if not errorlevel 1 set HAS_DS_KEY=1
+if "%HAS_DS_KEY%"=="1" goto ASK
+echo [deepseek] SKIP: sem DEEPSEEK_API_KEY e sem amandac.conf com a chave
+exit /b 0
+:ASK
 if not exist build\exemplo.amanda (
   echo [deepseek] compilando pacote de teste...
   amandac.exe compile --input examples\exemplo.txt --output build\exemplo.amanda --title "Exemplo Amanda"

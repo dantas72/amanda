@@ -2136,6 +2136,68 @@ static void test_typesafe_deepseek(void) {
 #endif
     }
     {
+        /* amandac.conf: KEY=valor com comentarios, espacos, aspas. */
+        const char *cf = "amanda_test_conf.tmp";
+        FILE *f = fopen(cf, "w");
+        CHECK(f != NULL, "conf: cria temporario");
+        if (f) {
+            fputs("# comentario\n", f);
+            fputs("  TYPESAFE_API_KEY = primeira \n", f);
+            fputs("OUTRA=xyz\n", f);
+            fputs("TYPESAFE_API_KEY=\"segunda\"\n", f);
+            fputs("VAZIA=\n", f);
+            fputs("sem-igual\n", f);
+            fclose(f);
+        }
+        char *k = amanda_conf_ler_chave(cf, "TYPESAFE_API_KEY");
+        CHECK(k && strcmp(k, "segunda") == 0, "conf: ultima ocorrencia vence, sem aspas");
+        free(k);
+        k = amanda_conf_ler_chave(cf, "OUTRA");
+        CHECK(k && strcmp(k, "xyz") == 0, "conf: chave simples");
+        free(k);
+        k = amanda_conf_ler_chave(cf, "VAZIA");
+        CHECK(k == NULL, "conf: valor vazio = NULL");
+        k = amanda_conf_ler_chave(cf, "AUSENTE");
+        CHECK(k == NULL, "conf: chave ausente = NULL");
+        k = amanda_conf_ler_chave("amanda_test_ausente.tmp", "TYPESAFE_API_KEY");
+        CHECK(k == NULL, "conf: arquivo ausente = NULL");
+        k = amanda_conf_ler_chave(NULL, "TYPESAFE_API_KEY");
+        CHECK(k == NULL, "conf: args nulos = NULL");
+        remove(cf);
+    }
+    {
+        /* Resolver: flag > env > key-file > amandac.conf (via AMANDA_CONF). */
+        const char *cf = "amanda_test_chain.tmp";
+        FILE *f = fopen(cf, "w");
+        if (f) { fputs("AMANDA_CHAIN_CONF=do-conf\n", f); fclose(f); }
+#ifdef _WIN32
+        _putenv("AMANDA_CONF=amanda_test_chain.tmp");
+        _putenv("AMANDA_CHAIN_ENV=do-env");
+#else
+        setenv("AMANDA_CONF", "amanda_test_chain.tmp", 1);
+        setenv("AMANDA_CHAIN_ENV", "do-env", 1);
+#endif
+        char *k = amanda_resolve_secret(NULL, "AMANDA_CHAIN_MISSING", NULL);
+        CHECK(k == NULL, "conf: conf sem a chave pedida = NULL");
+        k = amanda_resolve_secret(NULL, "AMANDA_CHAIN_CONF", NULL);
+        CHECK(k && strcmp(k, "do-conf") == 0, "conf: fallback amandac.conf");
+        free(k);
+        k = amanda_resolve_secret(NULL, "AMANDA_CHAIN_ENV", NULL);
+        CHECK(k && strcmp(k, "do-env") == 0, "conf: env vence conf");
+        free(k);
+        k = amanda_resolve_secret("da-flag", "AMANDA_CHAIN_ENV", NULL);
+        CHECK(k && strcmp(k, "da-flag") == 0, "conf: flag vence tudo");
+        free(k);
+#ifdef _WIN32
+        _putenv("AMANDA_CONF=");
+        _putenv("AMANDA_CHAIN_ENV=");
+#else
+        unsetenv("AMANDA_CONF");
+        unsetenv("AMANDA_CHAIN_ENV");
+#endif
+        remove(cf);
+    }
+    {
         /* amanda.json: secoes + overlay sem reset. */
         const char *jf = "amanda_test_cfg.tmp";
         FILE *f = fopen(jf, "w");

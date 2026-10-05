@@ -17,15 +17,21 @@ Dois motores, mesmo protocolo System One (`state` + `questions`):
 ## Chave (nunca no repo, nunca logada)
 
 Precedência: `--typesafe-key` > env `TYPESAFE_API_KEY` >
-`--typesafe-key-file` (com trim). No Windows:
+`--typesafe-key-file` > `amandac.conf`. No Windows:
 
 ```powershell
 $env:TYPESAFE_API_KEY = "sua-chave-do-console.typesafe.ai"
 ```
 
-Ou arquivo (melhor para serve/docker):
-`amandac serve ... --typesafe-key-file C:\segredos\typesafe.key`.
-O `amanda.json` e o `config.yaml` NÃO aceitam chaves (só URL/modelo).
+Ou `amandac.conf` na raiz do projeto (gitignored, formato
+`KEY=valor` — copie `examples/amandac.conf` e preencha):
+
+```
+TYPESAFE_API_KEY=sua-chave-aqui
+```
+
+`AMANDA_CONF` troca o caminho do conf. O `amanda.json` e o
+`config.yaml` NÃO aceitam chaves (só URL/modelo).
 
 ## Uso
 

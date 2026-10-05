@@ -8,7 +8,8 @@ local: mesma citação/página do motor local, texto redigido pelo
 ## Chave (nunca no repo, nunca logada)
 
 Precedência: `--deepseek-key` > env `DEEPSEEK_API_KEY` >
-`--deepseek-key-file` (com trim).
+`--deepseek-key-file` > `amandac.conf` (`KEY=valor`, gitignored;
+modelo em `examples/amandac.conf`).
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "sua-chave"

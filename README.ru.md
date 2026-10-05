@@ -92,8 +92,9 @@ DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend d
 `typesafe-http` (алиас `jev`): настоящее noul-суждение — облако
 `api.typesafe.ai` или локальный nimble в Ollama — калибрует
 уверенность поверх локального граундинга; `deepseek-http`:
-облачная перегенерация через DeepSeek. Ключи через флаг/env/файл
-(никогда не логируются, никогда в `amanda.json`); endpoints и модели
+облачная перегенерация через DeepSeek. Ключи через флаг/env/файл/
+`amandac.conf` (никогда не логируются, никогда в `amanda.json` —
+скопируйте `examples/amandac.conf`); endpoints и модели
 в `--config-json` (`examples/amanda.json`). Честный локальный
 фолбэк (поле `"backend"`). Реальный конвейер:
 `scripts/check_typesafe.bat` + `scripts/check_deepseek.bat`
@@ -180,7 +181,7 @@ gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-Ориентир: **252 проверки** + конвейер (12 шагов, вкл. MCP smoke
+Ориентир: **263 проверки** + конвейер (12 шагов, вкл. MCP smoke
 и реальные бэкенды с честным SKIP)
 + gold (80 вопросов, recall@2). CI: Windows + Linux (`ctest` + MCP
 smoke + сборка Docker); macOS на паузе (см. `FASES.md`).
@@ -204,4 +205,4 @@ smoke + сборка Docker); macOS на паузе (см. `FASES.md`).
 ## Версия
 `version.bin` — источник истины, увеличивается при каждом `build.bat`.
 Последняя локальная сборка:
-Build: `1.0.45`
+Build: `1.0.46`

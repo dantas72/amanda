@@ -12,6 +12,9 @@ if [ ! -f /tmp/exemplo.amanda ]; then
   "$BIN" compile --input examples/exemplo.txt --output /tmp/exemplo.amanda --title "Exemplo Amanda"
 fi
 TS_OUT=/tmp/amanda_ts_out.json
+HAS_TS_KEY=0
+if [ -n "${TYPESAFE_API_KEY:-}" ]; then HAS_TS_KEY=1; fi
+if [ -f amandac.conf ] && grep -q '^TYPESAFE_API_KEY=' amandac.conf 2>/dev/null; then HAS_TS_KEY=1; fi
 HAS_NIMBLE=0
 if curl -s --max-time 5 http://127.0.0.1:11434/api/tags -o /tmp/amanda_ollama.json 2>/dev/null; then
   if grep -q nimble /tmp/amanda_ollama.json 2>/dev/null; then HAS_NIMBLE=1; fi
@@ -25,8 +28,8 @@ if [ "$HAS_NIMBLE" = "1" ]; then
 else
   echo "[typesafe] SKIP: nimble indisponivel no Ollama :11434"
 fi
-if [ -z "${TYPESAFE_API_KEY:-}" ]; then
-  echo "[typesafe] SKIP: TYPESAFE_API_KEY ausente, sem teste nuvem"
+if [ "$HAS_TS_KEY" != "1" ]; then
+  echo "[typesafe] SKIP: sem TYPESAFE_API_KEY e sem amandac.conf com a chave, sem teste nuvem"
   echo "[typesafe] livros: SKIP sem nuvem, nimble local e lento demais por pergunta"
   echo "[OK] typesafe smoke passou."
   exit 0

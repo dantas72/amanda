@@ -6,8 +6,11 @@ cd "$(dirname "$0")/.."
 BIN=./amandac
 if [ ! -x "$BIN" ] && [ -x ./build/amandac ]; then BIN=./build/amandac; fi
 if [ ! -x "$BIN" ]; then echo "[ERRO] binario amandac nao encontrado (cmake --build build)"; exit 1; fi
-if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
-  echo "[deepseek] SKIP: DEEPSEEK_API_KEY ausente"
+HAS_DS_KEY=0
+if [ -n "${DEEPSEEK_API_KEY:-}" ]; then HAS_DS_KEY=1; fi
+if [ -f amandac.conf ] && grep -q '^DEEPSEEK_API_KEY=' amandac.conf 2>/dev/null; then HAS_DS_KEY=1; fi
+if [ "$HAS_DS_KEY" != "1" ]; then
+  echo "[deepseek] SKIP: sem DEEPSEEK_API_KEY e sem amandac.conf com a chave"
   exit 0
 fi
 if [ ! -f /tmp/exemplo.amanda ]; then

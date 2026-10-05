@@ -91,7 +91,8 @@ DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend d
 `typesafe-http` (alias `jev`): julgamento noul real — nuvem
 `api.typesafe.ai` ou nimble no Ollama — calibra a confiança sobre o
 grounding local; `deepseek-http`: redação via nuvem DeepSeek.
-Chaves via flag/env/arquivo (nunca logadas, nunca em `amanda.json`);
+Chaves via flag/env/arquivo/`amandac.conf` (nunca logadas, nunca em
+`amanda.json` — copie `examples/amandac.conf`);
 endpoints e modelos em `--config-json` (`examples/amanda.json`).
 Fallback local honesto (campo `"backend"`). Pipeline real:
 `scripts/check_typesafe.bat` + `scripts/check_deepseek.bat`
@@ -178,7 +179,7 @@ gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-Referência: **252 checks** + pipeline (12 etapas, incl. MCP smoke
+Referência: **263 checks** + pipeline (12 etapas, incl. MCP smoke
 e backends reais com SKIP honesto)
 + gold (80 perguntas, recall@2). CI: Windows + Linux (`ctest` + MCP smoke
 + Docker build); macOS pausado (ver `FASES.md`).
@@ -202,4 +203,4 @@ e backends reais com SKIP honesto)
 ## Versão
 `version.bin` é a fonte da verdade, incrementada a cada `build.bat`.
 Último build local:
-Build: `1.0.45`
+Build: `1.0.46`
