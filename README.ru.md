@@ -99,7 +99,8 @@ DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend d
 фолбэк (поле `"backend"`). Реальный конвейер:
 `scripts/check_typesafe.bat` + `scripts/check_deepseek.bat`
 (SKIP без Ollama/ключей). Подробности в `docs/typesafe.md`,
-`docs/deepseek.md` и `docs/jev.md`.
+`docs/deepseek.md` и `docs/jev.md`; практика в `docs/gui_jev.md`
+(тест, анализ, свои примеры).
 
 ## Перекалибровка (фаза 6, хранится в v3 с 12.4)
 
