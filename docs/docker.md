@@ -35,6 +35,7 @@ Variáveis de ambiente (todas opcionais):
 | `CONF_CENTER` / `CONF_SLOPE` / `LIMIAR_RECUSA` | — | idem |
 | `BACKEND` | `local` | `--backend` (`laya-http` exige `LAYA_URL` alcançável) |
 | `LAYA_URL` / `LAYA_TIMEOUT_MS` / `LAYA_MAX` | — | idem |
+| `LAYA_QUEUE` / `LAYA_QUEUE_MS` | `16` / `5000` | fila LLM com prioridade (decisions > chat) |
 | `IGNORE_CALIB` | — | `--ignore-calib` |
 | `DATA_DIR` | `/data` | diretório varrido |
 

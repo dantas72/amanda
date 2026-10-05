@@ -27,6 +27,7 @@ static void print_uso(void) {
     printf("                  [--cors ORIGEM] [--api-key CHAVE] [--api-key-file ARQ] [--max-body BYTES] [--max-conns N] [--workers N] [--eval-max N]\n");
     printf("                  [--config <arq.yaml>] [--ignore-calib]\n");
     printf("                  [--backend local|laya-http] [--laya-url URL] [--laya-timeout-ms MS] [--laya-max N]\n");
+    printf("                  [--laya-queue N] [--laya-queue-ms MS] (fila LLM com prioridade; 0ms = sem espera)\n");
     printf("  (serve multi: --package repetivel ou nome=caminho; \"model\" seleciona o pacote; \"amanda\" = 1o)\n");
     printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
     printf("                  [--conf-center F] [--conf-slope F] [--limiar-recusa F] [--ignore-calib]\n");
@@ -304,6 +305,9 @@ static int cmd_serve(int argc, char **argv) {
     ServerConfig cfg;
     memset(&cfg, 0, sizeof cfg);
     cfg.host = host; cfg.port = port;
+    /* -1 = nao setado (server aplica o default); 0 explicito desliga. */
+    cfg.laya_queue = -1;
+    cfg.laya_queue_ms = -1;
     cfg.pkg = (n_specs == 1) ? pkgs[0] : NULL;
     cfg.pkgs = pkgs;
     cfg.pkg_names = name_ptrs;
@@ -357,6 +361,14 @@ static int cmd_serve(int argc, char **argv) {
             else if (acfg.tem_servidor && acfg.srv_laya_timeout_ms > 0) cfg.laya_timeout_ms = acfg.srv_laya_timeout_ms;
             if (lm) cfg.laya_max = atoi(lm);
             else if (acfg.tem_servidor && acfg.srv_laya_max > 0) cfg.laya_max = acfg.srv_laya_max;
+            {
+                const char *lq = flag_val(argc, argv, "--laya-queue", NULL);
+                const char *lqm = flag_val(argc, argv, "--laya-queue-ms", NULL);
+                if (lq) cfg.laya_queue = atoi(lq);
+                else if (acfg.tem_servidor && acfg.srv_laya_queue > 0) cfg.laya_queue = acfg.srv_laya_queue;
+                if (lqm) cfg.laya_queue_ms = atoi(lqm);
+                else if (acfg.tem_servidor && acfg.srv_laya_queue_ms > 0) cfg.laya_queue_ms = acfg.srv_laya_queue_ms;
+            }
         }
     }
     int rc = server_run(&cfg);

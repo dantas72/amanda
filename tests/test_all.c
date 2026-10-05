@@ -1651,6 +1651,197 @@ static void test_serve_multi(void) {
     g_t75_port = T75_PORT;
 }
 
+typedef struct {
+    LlmPool *pool;
+    int prio;
+    int espera;
+    int got;
+    int id;
+    int *ordem;
+} PoolJob;
+
+#ifdef _WIN32
+static unsigned __stdcall pool_job(void *p) {
+    PoolJob *j = (PoolJob *)p;
+    j->got = llm_pool_adquirir(j->pool, j->prio, j->espera);
+    if (j->got) {
+        if (j->ordem) *j->ordem = j->id;
+        llm_pool_devolver(j->pool);
+    }
+    return 0;
+}
+#else
+static void *pool_job(void *p) {
+    PoolJob *j = (PoolJob *)p;
+    j->got = llm_pool_adquirir(j->pool, j->prio, j->espera);
+    if (j->got) {
+        if (j->ordem) *j->ordem = j->id;
+        llm_pool_devolver(j->pool);
+    }
+    return NULL;
+}
+#endif
+
+static void test_llm_pool(void) {
+    printf("[llm_pool]\n");
+    {
+        LlmPool *p = llm_pool_criar(0, 0);
+        CHECK(p != NULL, "pool: criar com defaults");
+        CHECK(llm_pool_adquirir(p, LLM_PRIO_NORMAL, 0) == 1, "pool: slot imediato");
+        llm_pool_devolver(p);
+        long at = 0, ff = 0, ft = 0;
+        llm_pool_stats(p, &at, &ff, &ft);
+        CHECK(at == 1 && ff == 0 && ft == 0, "pool: stats iniciais");
+        llm_pool_liberar(p);
+    }
+    CHECK(llm_pool_adquirir(NULL, 0, 0) == 0, "pool: adquirir NULL = 0 sem crash");
+    llm_pool_liberar(NULL);
+    {
+        /* Espera 0 com slot ocupado: fallback por tempo, sem bloquear. */
+        LlmPool *p = llm_pool_criar(1, 8);
+        CHECK(llm_pool_adquirir(p, 0, 0) == 1, "pool: ocupa unico slot");
+        long long t0 = now_ms();
+        CHECK(llm_pool_adquirir(p, 0, 0) == 0, "pool: espera 0 sem slot = 0");
+        CHECK(now_ms() - t0 < 2000, "pool: espera 0 retorna rapido");
+        long at = 0, ff = 0, ft = 0;
+        llm_pool_stats(p, &at, &ff, &ft);
+        CHECK(ft == 1 && ff == 0, "pool: espera 0 conta fb_tempo");
+        llm_pool_devolver(p);
+        llm_pool_liberar(p);
+    }
+    {
+        /* Timeout real: espera 150ms sem slot. */
+        LlmPool *p = llm_pool_criar(1, 8);
+        llm_pool_adquirir(p, 0, 0);
+        long long t0 = now_ms();
+        CHECK(llm_pool_adquirir(p, 0, 150) == 0, "pool: timeout sem slot = 0");
+        long long dt = now_ms() - t0;
+        CHECK(dt >= 100 && dt < 5000, "pool: espera respeita o prazo");
+        long at = 0, ff = 0, ft = 0;
+        llm_pool_stats(p, &at, &ff, &ft);
+        CHECK(ft == 1, "pool: timeout conta fb_tempo");
+        llm_pool_devolver(p);
+        llm_pool_liberar(p);
+    }
+    {
+        /* Fila cheia: 1 slot + 1 espera; 2a espera = fb_fila. */
+        LlmPool *p = llm_pool_criar(1, 1);
+        llm_pool_adquirir(p, 0, 0);
+        PoolJob j1;
+        memset(&j1, 0, sizeof j1);
+        j1.pool = p; j1.prio = LLM_PRIO_NORMAL; j1.espera = 5000;
+#ifdef _WIN32
+        uintptr_t h1 = _beginthreadex(NULL, 0, pool_job, &j1, 0, NULL);
+        CHECK(h1 != 0, "pool: waiter entra na fila");
+#else
+        pthread_t h1 = 0;
+        CHECK(pthread_create(&h1, NULL, pool_job, &j1) == 0, "pool: waiter entra na fila");
+#endif
+        sleep_ms(300);
+        CHECK(llm_pool_adquirir(p, 0, 5000) == 0, "pool: fila cheia = 0 imediato");
+        long at = 0, ff = 0, ft = 0;
+        llm_pool_stats(p, &at, &ff, &ft);
+        CHECK(ff == 1, "pool: fila cheia conta fb_fila");
+        llm_pool_devolver(p); /* transfere ao waiter */
+#ifdef _WIN32
+        WaitForSingleObject((HANDLE)h1, 15000);
+        CloseHandle((HANDLE)h1);
+#else
+        pthread_join(h1, NULL);
+#endif
+        CHECK(j1.got == 1, "pool: waiter recebe o slot ao liberar");
+        llm_pool_liberar(p);
+    }
+    {
+        /* Prioridade: ALTA passa na frente de NORMAL ja enfileirado. */
+        LlmPool *p = llm_pool_criar(1, 8);
+        llm_pool_adquirir(p, 0, 0);
+        int ordem_low = 0, ordem_high = 0;
+        PoolJob jl, jh;
+        memset(&jl, 0, sizeof jl);
+        memset(&jh, 0, sizeof jh);
+        jl.pool = p; jl.prio = LLM_PRIO_NORMAL; jl.espera = 8000; jl.id = 2; jl.ordem = &ordem_low;
+        jh.pool = p; jh.prio = LLM_PRIO_ALTA; jh.espera = 8000; jh.id = 1; jh.ordem = &ordem_high;
+#ifdef _WIN32
+        uintptr_t hl = _beginthreadex(NULL, 0, pool_job, &jl, 0, NULL);
+        sleep_ms(300);
+        uintptr_t hh = _beginthreadex(NULL, 0, pool_job, &jh, 0, NULL);
+        sleep_ms(300);
+        CHECK(hl != 0 && hh != 0, "pool: dois waiters enfileirados");
+#else
+        pthread_t hl = 0, hh = 0;
+        int r1 = pthread_create(&hl, NULL, pool_job, &jl);
+        sleep_ms(300);
+        int r2 = pthread_create(&hh, NULL, pool_job, &jh);
+        sleep_ms(300);
+        CHECK(r1 == 0 && r2 == 0, "pool: dois waiters enfileirados");
+#endif
+        llm_pool_devolver(p); /* deve entregar ao ALTA primeiro */
+#ifdef _WIN32
+        WaitForSingleObject((HANDLE)hh, 15000);
+        WaitForSingleObject((HANDLE)hl, 15000);
+        CloseHandle((HANDLE)hh);
+        CloseHandle((HANDLE)hl);
+#else
+        pthread_join(hh, NULL);
+        pthread_join(hl, NULL);
+#endif
+        CHECK(jh.got == 1 && jl.got == 1, "pool: ambos atendidos");
+        CHECK(ordem_high == 1 && ordem_low == 2, "pool: ALTA antes de NORMAL");
+        llm_pool_liberar(p);
+    }
+    {
+        /* FIFO entre iguais: ordem de chegada. */
+        LlmPool *p = llm_pool_criar(1, 8);
+        llm_pool_adquirir(p, 0, 0);
+        int o1 = 0, o2 = 0;
+        PoolJob j1, j2;
+        memset(&j1, 0, sizeof j1);
+        memset(&j2, 0, sizeof j2);
+        j1.pool = p; j1.espera = 8000; j1.id = 1; j1.ordem = &o1;
+        j2.pool = p; j2.espera = 8000; j2.id = 2; j2.ordem = &o2;
+#ifdef _WIN32
+        uintptr_t h1 = _beginthreadex(NULL, 0, pool_job, &j1, 0, NULL);
+        sleep_ms(300);
+        uintptr_t h2 = _beginthreadex(NULL, 0, pool_job, &j2, 0, NULL);
+        sleep_ms(300);
+        llm_pool_devolver(p);
+        WaitForSingleObject((HANDLE)h1, 15000);
+        WaitForSingleObject((HANDLE)h2, 15000);
+        CloseHandle((HANDLE)h1);
+        CloseHandle((HANDLE)h2);
+#else
+        pthread_t h1 = 0, h2 = 0;
+        pthread_create(&h1, NULL, pool_job, &j1);
+        sleep_ms(300);
+        pthread_create(&h2, NULL, pool_job, &j2);
+        sleep_ms(300);
+        llm_pool_devolver(p);
+        pthread_join(h1, NULL);
+        pthread_join(h2, NULL);
+#endif
+        CHECK(o1 == 1 && o2 == 2, "pool: FIFO entre mesma prioridade");
+        llm_pool_liberar(p);
+    }
+    {
+        /* Config: laya_queue/laya_queue_ms na secao servidor. */
+        const char *cf = "amanda_test_pool_cfg.tmp";
+        FILE *f = fopen(cf, "w");
+        CHECK(f != NULL, "pool: cria yaml temporario");
+        if (f) {
+            fputs("servidor:\n  laya_queue: 4\n  laya_queue_ms: 2500\n", f);
+            fclose(f);
+        }
+        AmandaConfig ac;
+        config_defaults(&ac);
+        char *cerr = NULL;
+        CHECK(config_ler(cf, &ac, &cerr) == 0, "pool: config le laya_queue*");
+        CHECK(ac.srv_laya_queue == 4 && ac.srv_laya_queue_ms == 2500, "pool: valores da fila no config");
+        free(cerr);
+        remove(cf);
+    }
+}
+
 static void test_mcp(void) {
     printf("[mcp]\n");
     Chunk *ch = (Chunk *)xcalloc(2, sizeof(Chunk));
@@ -1777,6 +1968,7 @@ int main(void) {
     test_fase124b();
     test_serve_multi();
     test_mcp();
+    test_llm_pool();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

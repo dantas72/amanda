@@ -54,5 +54,7 @@ exec amandac serve $pkgs \
   ${LAYA_URL:+--laya-url "$LAYA_URL"} \
   ${LAYA_TIMEOUT_MS:+--laya-timeout-ms "$LAYA_TIMEOUT_MS"} \
   ${LAYA_MAX:+--laya-max "$LAYA_MAX"} \
+  ${LAYA_QUEUE:+--laya-queue "$LAYA_QUEUE"} \
+  ${LAYA_QUEUE_MS:+--laya-queue-ms "$LAYA_QUEUE_MS"} \
   ${IGNORE_CALIB:+--ignore-calib} \
   "$@"

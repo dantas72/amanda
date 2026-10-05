@@ -209,7 +209,7 @@ gcc -O2 -std=c11 -Iinclude tests/test_all.c src/amanda.c src/utils.c src/pdf_ext
 scripts\test_pipeline.bat
 ```
 
-Referência: **198 checks** unitários + 10 etapas de integração
+Referência: **220 checks** unitários + 10 etapas de integração
 (2 etapas Laya com SKIP honesto sem o engine em `:8420`, MCP smoke,
 docker com SKIP sem docker)
 + regressão gold (`scripts\check_gold.bat`, 80 perguntas, recall@2).

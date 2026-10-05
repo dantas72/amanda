@@ -360,3 +360,202 @@ int laya_providers_ready(const char *base_url, int timeout_ms) {
     free(rbody);
     return ok;
 }
+
+/* ==================== Pool LLM com prioridade ==================== */
+
+#ifdef _WIN32
+#include <process.h>
+#endif
+#ifndef _WIN32
+#include <pthread.h>
+#include <sys/time.h>
+#endif
+
+/* No de espera: vive na pilha do thread que chama adquirir (o thread
+ * fica vivo enquanto espera, logo o no e valido sob o mutex). */
+typedef struct LlmWaiter {
+    int prio;
+    long seq;
+    int granted;
+    struct LlmWaiter *next;
+} LlmWaiter;
+
+struct LlmPool {
+    int max_slots;
+    int max_fila;
+    int active;
+    long seq_next;
+    LlmWaiter *head;
+    LlmWaiter *tail;
+    int n_wait;
+    long atendidas;
+    long fb_fila;
+    long fb_tempo;
+#ifdef _WIN32
+    CRITICAL_SECTION cs;
+    CONDITION_VARIABLE cv;
+#else
+    pthread_mutex_t mtx;
+    pthread_cond_t cv;
+#endif
+};
+
+LlmPool *llm_pool_criar(int max_slots, int max_fila) {
+    LlmPool *p = (LlmPool *)calloc(1, sizeof *p);
+    if (!p) return NULL;
+    p->max_slots = (max_slots > 0) ? max_slots : LLM_POOL_SLOTS_DEFAULT;
+    p->max_fila = (max_fila >= 0) ? max_fila : 0;
+#ifdef _WIN32
+    InitializeCriticalSection(&p->cs);
+    InitializeConditionVariable(&p->cv);
+#else
+    pthread_mutex_init(&p->mtx, NULL);
+    pthread_cond_init(&p->cv, NULL);
+#endif
+    return p;
+}
+
+void llm_pool_liberar(LlmPool *p) {
+    if (!p) return;
+#ifdef _WIN32
+    DeleteCriticalSection(&p->cs);
+#else
+    pthread_mutex_destroy(&p->mtx);
+    pthread_cond_destroy(&p->cv);
+#endif
+    free(p);
+}
+
+static void pool_lock(LlmPool *p) {
+#ifdef _WIN32
+    EnterCriticalSection(&p->cs);
+#else
+    pthread_mutex_lock(&p->mtx);
+#endif
+}
+
+static void pool_unlock(LlmPool *p) {
+#ifdef _WIN32
+    LeaveCriticalSection(&p->cs);
+#else
+    pthread_mutex_unlock(&p->mtx);
+#endif
+}
+
+static void pool_broadcast(LlmPool *p) {
+#ifdef _WIN32
+    WakeAllConditionVariable(&p->cv);
+#else
+    pthread_cond_broadcast(&p->cv);
+#endif
+}
+
+/* Espera ate ms (relativo). Retorna 1 se acordou por sinal, 0 se o
+ * prazo estourou (ou erro). Chamar com o mutex preso (o Windows e o
+ * POSIX liberam/retomam atomicamente). */
+static int pool_timedwait(LlmPool *p, long ms) {
+    if (ms <= 0) return 0;
+#ifdef _WIN32
+    return SleepConditionVariableCS(&p->cv, &p->cs, (DWORD)ms) ? 1 : 0;
+#else
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    long long ns = (long long)now.tv_sec * 1000000000LL +
+                   (long long)now.tv_usec * 1000LL +
+                   (long long)ms * 1000000LL;
+    struct timespec ts;
+    ts.tv_sec = (time_t)(ns / 1000000000LL);
+    ts.tv_nsec = (long)(ns % 1000000000LL);
+    return (pthread_cond_timedwait(&p->cv, &p->mtx, &ts) == 0) ? 1 : 0;
+#endif
+}
+
+int llm_pool_adquirir(LlmPool *p, int prioridade, int espera_ms) {
+    if (!p) return 0;
+    int prio = (prioridade == LLM_PRIO_ALTA) ? LLM_PRIO_ALTA : LLM_PRIO_NORMAL;
+    pool_lock(p);
+    /* Caminho rapido: slot livre e ninguem na frente. */
+    if (p->active < p->max_slots && p->head == NULL) {
+        p->active++;
+        p->atendidas++;
+        pool_unlock(p);
+        return 1;
+    }
+    if (espera_ms <= 0 || p->n_wait >= p->max_fila) {
+        /* Sem espera pedida, ou fila cheia: fallback honesto. */
+        if (espera_ms > 0) p->fb_fila++;
+        else p->fb_tempo++;
+        pool_unlock(p);
+        return 0;
+    }
+    LlmWaiter me;
+    me.prio = prio;
+    me.seq = p->seq_next++;
+    me.granted = 0;
+    me.next = NULL;
+    if (p->tail) p->tail->next = &me;
+    else p->head = &me;
+    p->tail = &me;
+    p->n_wait++;
+    long long deadline = now_ms() + (long long)espera_ms;
+    for (;;) {
+        long long rest = deadline - now_ms();
+        if (me.granted) break;
+        if (rest <= 0) {
+            /* Prazo esgotado. Se o devolver nos escolheu na mesma
+             * janela (granted sob o mutex), o slot e nosso: sucesso.
+             * Senao, saimos da fila (fallback por tempo). */
+            if (me.granted) break;
+            LlmWaiter **pp = &p->head;
+            while (*pp && *pp != &me) pp = &(*pp)->next;
+            if (*pp) {
+                *pp = me.next;
+                p->n_wait--;
+                p->tail = NULL;
+                for (LlmWaiter *t = p->head; t; t = t->next) p->tail = t;
+            }
+            p->fb_tempo++;
+            pool_unlock(p);
+            return 0;
+        }
+        pool_timedwait(p, (long)(rest > 60000 ? 60000 : rest));
+    }
+    p->atendidas++;
+    pool_unlock(p);
+    return 1;
+}
+
+void llm_pool_devolver(LlmPool *p) {
+    if (!p) return;
+    pool_lock(p);
+    /* Passa o slot ao 1o ALTA (FIFO entre iguais); senao ao 1o NORMAL. */
+    LlmWaiter **best = NULL;
+    for (LlmWaiter **pp = &p->head; *pp; pp = &(*pp)->next) {
+        if ((*pp)->prio == LLM_PRIO_ALTA) { best = pp; break; }
+        if (!best) best = pp;
+    }
+    if (best) {
+        LlmWaiter *w = *best;
+        *best = w->next;
+        p->n_wait--;
+        p->tail = NULL;
+        for (LlmWaiter *t = p->head; t; t = t->next) p->tail = t;
+        w->granted = 1;
+        /* active segue ocupado: transferencia direta ao escolhido. */
+        pool_broadcast(p);
+    } else {
+        if (p->active > 0) p->active--;
+        pool_broadcast(p);
+    }
+    pool_unlock(p);
+}
+
+void llm_pool_stats(LlmPool *p, long *atendidas_out,
+                    long *fb_fila_out, long *fb_tempo_out) {
+    if (!p) return;
+    pool_lock(p);
+    if (atendidas_out) *atendidas_out = p->atendidas;
+    if (fb_fila_out) *fb_fila_out = p->fb_fila;
+    if (fb_tempo_out) *fb_tempo_out = p->fb_tempo;
+    pool_unlock(p);
+}

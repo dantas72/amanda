@@ -134,6 +134,10 @@ int config_ler(const char *path, AmandaConfig *out, char **erro) {
             out->srv_laya_timeout_ms = atoi(v); out->tem_servidor = 1;
         } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "laya_max") == 0) {
             out->srv_laya_max = atoi(v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "laya_queue") == 0) {
+            out->srv_laya_queue = atoi(v); out->tem_servidor = 1;
+        } else if (strcmp(secao, "servidor") == 0 && strcmp(k, "laya_queue_ms") == 0) {
+            out->srv_laya_queue_ms = atoi(v); out->tem_servidor = 1;
         } else if (strcmp(secao, "") == 0 && strcmp(k, "titulo") == 0) {
             set_str(out->title, sizeof out->title, v);
         } else if (strcmp(secao, "") == 0 && strcmp(k, "autor") == 0) {

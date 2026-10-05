@@ -33,6 +33,12 @@ typedef struct {
     char laya_url[256];
     int laya_timeout_ms;      /* default 60000 */
     int laya_max;
+    /* Pool LLM com prioridade: laya_queue = teto de esperas (-1 = 16,
+       0 = sem espera, legado Fase 11); laya_queue_ms = espera maxima
+       (-1 = 5000ms, 0 = tenta uma vez). decisions tem prioridade ALTA
+       sobre chat (NORMAL); cheia/estouro = fallback local honesto. */
+    int laya_queue;
+    int laya_queue_ms;
     /* Fase 13: multi-pacote (roteado por "model", default 1o).
        Quando n_pkgs > 0, pkgs/nomes prevalecem sobre pkg (legado).
        Nomes unicos (ex.: basename sem extensao); "amanda" = alias

@@ -25,10 +25,14 @@ Inferência LLM no `serve` (Fase 11):
 `--backend local|laya-http` (default `local`),
 `--laya-url URL` (default `http://127.0.0.1:8420`),
 `--laya-timeout-ms MS` (default 60000),
-`--laya-max N` (default 2; teto de inferências LLM simultâneas).
+`--laya-max N` (default 2; teto de inferências LLM simultâneas),
+`--laya-queue N` (default 16; teto de esperas na fila),
+`--laya-queue-ms MS` (default 5000; espera máxima; `0` = sem espera).
 Com `laya-http`, `chat` e `decisions` tentam o engine do Laya sobre o
-grounding local e caem para o motor local em qualquer falha ou sem
-slot livre. Respostas trazem `"backend":"local"` ou `"laya-http"`.
+grounding local e caem para o motor local em qualquer falha, com fila
+cheia ou com a espera esgotada. `decisions` tem prioridade ALTA na
+fila sobre `chat` (NORMAL). Respostas trazem `"backend":"local"` ou
+`"laya-http"`.
 `embeddings` e `eval` seguem sempre locais.
 
 ## Citação multi top-2 (Fase 12.2)

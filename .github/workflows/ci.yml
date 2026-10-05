@@ -95,6 +95,10 @@ jobs:
         shell: bash
         run: sh scripts/check_mcp.sh
 
+      - name: Gold regression (SKIP without book packages, never fails CI)
+        shell: bash
+        run: sh scripts/check_gold.sh || true
+
       - name: Docker build (validates Dockerfile + unit tests in image)
         if: matrix.os == 'ubuntu-latest'
         run: docker build -t amandac .

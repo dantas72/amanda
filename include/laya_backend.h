@@ -26,4 +26,38 @@ int laya_providers_ready(const char *base_url, int timeout_ms);
    com unescape (\" \\ \n \t \r). Retorna string alocada ou NULL. */
 char *laya_extract_content(const char *body);
 
+/* ============ Pool LLM com prioridade (fila propria) ============
+ *
+ * Substitui o "slot ou fallback imediato": quando todos os slots de
+ * inferencia estao ocupados, o request espera numa fila limitada em
+ * vez de cair na hora para o motor local. Duas prioridades FIFO:
+ * ALTA (POST /v1/decisions, o nucleo tipado) passa na frente de
+ * NORMAL (POST /v1/chat/completions). Fila cheia ou espera esgotada
+ * = fallback local honesto (campo "backend" informa, como antes).
+ * Thread-safe nas duas plataformas; sem dependencias novas. */
+
+#define LLM_PRIO_NORMAL 0
+#define LLM_PRIO_ALTA 1
+#define LLM_POOL_SLOTS_DEFAULT 2
+#define LLM_POOL_FILA_DEFAULT 16
+#define LLM_POOL_ESPERA_DEFAULT_MS 5000
+
+typedef struct LlmPool LlmPool;
+
+/* max_slots <= 0 vira 2; max_fila < 0 vira 0 (0 = sem espera:
+   comportamento antigo, fallback imediato). NULL em falta de memoria. */
+LlmPool *llm_pool_criar(int max_slots, int max_fila);
+void llm_pool_liberar(LlmPool *p);
+
+/* 1 = slot obtido (depois chamar llm_pool_devolver); 0 = sem slot
+   (fila cheia ou espera esgotada -> usar motor local). espera_ms <= 0
+   tenta uma vez sem esperar. prioridade: LLM_PRIO_* (outro valor =
+   NORMAL). */
+int llm_pool_adquirir(LlmPool *p, int prioridade, int espera_ms);
+void llm_pool_devolver(LlmPool *p);
+
+/* Contadores acumulados (para testes/diagnostico). */
+void llm_pool_stats(LlmPool *p, long *atendidas_out,
+                    long *fb_fila_out, long *fb_tempo_out);
+
 #endif

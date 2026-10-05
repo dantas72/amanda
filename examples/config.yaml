@@ -38,3 +38,6 @@ servidor:
   # eval_max: 200
   # backend: "local"  # ou laya-http
   # laya_url: "http://127.0.0.1:8420"
+  # laya_max: 2
+  # laya_queue: 16  # teto de esperas LLM (0 = sem espera)
+  # laya_queue_ms: 5000  # espera maxima (0 = tenta uma vez)

@@ -168,7 +168,7 @@
 testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
 - [x] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
 - [x] MCP server: expor `ask`/`decisions` como ferramentas MCP p/ OpenCode e agentes.
-- [ ] Pool LLM: fila própria com prioridade p/ inferências `laya-http` (hoje: slots + fallback imediato).
+- [x] Pool LLM: fila própria com prioridade p/ inferências `laya-http` (ver "Fase Pool LLM" abaixo).
 - [ ] Testes em GPU: Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
 - [ ] Self-hosted M2-M4: documentar runner próprio (labels + serviço) rodando as etapas do CI.
 - [ ] CI macOS: ver Fase 14 (pausada com diagnóstico registrado) e `docs/macos.md` (kit futuro).
@@ -199,3 +199,27 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
     `mcp.h` (zero warnings novos, como exige o projeto);
     `strncmp(method, "notifications/", 16)` com tamanho errado
     (notificação respondia — pego pelo teste, corrigido p/ 14).
+
+- [x] Fase Pool LLM (2026-10-05, escopo confirmado Skill nº5 junto com
+  `check_gold.sh`; `amandac 1.0.39`, testes 220/220):
+  - `LlmPool` (`include/laya_backend.h`, `src/laya_backend.c`, C11
+    portátil: `CRITICAL_SECTION`+`CONDITION_VARIABLE` no Windows,
+    `pthread`+`cond_timedwait` no POSIX): fila própria com 2
+    prioridades FIFO (ALTA p/ `decisions`, NORMAL p/ `chat`),
+    transferência direta de slot ao escolhido (sem roubo por
+    recém-chegado), timeout com deadline (`now_ms`), corrida
+    grant-vs-timeout tratada (granted sob o mutex vence), contadores
+    `atendidas/fb_fila/fb_tempo`, `max_fila=0` = legado imediato.
+  - `serve`: `--laya-queue N` (default 16, `0` = sem espera) +
+    `--laya-queue-ms MS` (default 5000, `0` = tenta uma vez),
+    `serve --config` (`servidor: laya_queue/laya_queue_ms`), banner
+    com fila/espera; `decisions` ALTA, `chat` NORMAL; cheia/estouro =
+    fallback local honesto (campo `backend` intacto).
+  - Docker (`LAYA_QUEUE`/`LAYA_QUEUE_MS`), `docs/laya.md`,
+    `docs/api.md`, `README.md`, `examples/config.yaml` (chaves
+    comentadas). `serve`/`ask`/`mcp` locais inalterados.
+  - Testes +22 `test_llm_pool` (defaults, espera 0, timeout com
+    prazo, fila cheia, waiter recebe, ALTA> NORMAL, FIFO, config
+    YAML); `scripts/check_gold.sh` (port fiel do `.bat`, 80/80 pins
+    idênticos verificados por script, SKIP sem `*_t74`, exit 1 em
+    divergência) + etapa CI (`|| true`: CI não tem os livros).

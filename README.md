@@ -97,7 +97,7 @@ grava no pacote (formato `.amanda` v3); `ask`/`eval`/`serve` usam
 automaticamente (flag CLI prevalece, `--ignore-calib` força o padrão).
 Zeros = padrão histórico. Detalhes e tabela por livro em `docs/eval.md`.
 
-## Serve (Fases 7.2/7.5/11/13)
+## Serve (Fases 7.2/7.5/11/13 + pool LLM)
 
 ```sh
 amandac serve --package exemplo.amanda --port 8080 --conf-center 0.200 --conf-slope 16.0 --limiar-recusa 0.85
@@ -110,7 +110,10 @@ com `503`), chave via flag/env/arquivo (nunca logada), `serve
 --config` (seção `servidor:`), log de acesso em `stderr`, sem TLS
 próprio (produção atrás de reverse-proxy). Multi-pacote por `"model"`
 (ver `docs/api.md`). Com `--backend laya-http`, chat/decisions tentam
-o engine Laya com fallback local automático (campo `"backend"`).
+o engine Laya com fallback local automático (campo `"backend"`):
+pool LLM com prioridade (`decisions` ALTA > `chat` NORMAL,
+`--laya-queue`/`--laya-queue-ms`; fila cheia ou prazo esgotado =
+local, ver `docs/laya.md`).
 
 ## MCP server (ask/decisions via OpenCode e agentes)
 
@@ -156,7 +159,7 @@ gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-Referência: **198 checks** + pipeline (10 etapas, incl. MCP smoke)
+Referência: **220 checks** + pipeline (10 etapas, incl. MCP smoke)
 + gold (80 perguntas, recall@2). CI: Windows + Linux (`ctest` + MCP smoke
 + Docker build); macOS pausado (ver `FASES.md`).
 
@@ -180,4 +183,4 @@ Referência: **198 checks** + pipeline (10 etapas, incl. MCP smoke)
 ## Versão
 `version.bin` é a fonte da verdade, incrementada a cada `build.bat`.
 Último build local:
-Build: `1.0.37`
+Build: `1.0.39`

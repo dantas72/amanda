@@ -53,6 +53,10 @@ typedef struct {
     char laya_url[256];
     int laya_timeout_ms;
     int laya_max;
+    /* Pool LLM: fila propria com prioridade (0 = sem espera). */
+    LlmPool *llm_pool;
+    int laya_queue;
+    int laya_queue_ms;
 } ReqCtx;
 
 /* Fase 13: chave via flag > env AMANDA_API_KEY > arquivo (trim).
@@ -142,32 +146,22 @@ static void slots_release(void) {
     slots_unlock();
 }
 
-/* Fase 11: slots de inferencia LLM (contador proprio, mesmo padrao). */
-static int g_llm_active = 0;
-
-static int llm_try_acquire(int max) {
-    int ok = 0;
-    slots_lock();
-    if (g_llm_active < max) { g_llm_active++; ok = 1; }
-    slots_unlock();
-    return ok;
+/* Pool LLM com prioridade: decisions (ALTA, nucleo tipado) passa na
+ * frente de chat (NORMAL). Fila cheia ou espera esgotada = fallback
+ * local honesto (campo "backend" informa, como na Fase 11). */
+static void llm_release(LlmPool *pool) {
+    llm_pool_devolver(pool);
 }
 
-static void llm_release(void) {
-    slots_lock();
-    if (g_llm_active > 0) g_llm_active--;
-    slots_unlock();
-}
-
-/* Fase 11: monta cfg hibrida quando ha backend LLM + slot livre.
-   Retorna 1 com *usou_slot = 1 se o chamador deve liberar o slot. */
+/* Monta cfg hibrida quando ha backend LLM + slot (imediato ou via
+ * fila). Retorna 1 com *usou_slot = 1 se o chamador deve devolver. */
 static int llm_begin(const ReqCtx *ctx, const DecisionConfig *base,
-                     DecisionConfig *out, int *usou_slot) {
+                     DecisionConfig *out, int *usou_slot, int prioridade) {
     *usou_slot = 0;
     *out = *base;
     if (ctx->backend != DECISION_BACKEND_LAYA_HTTP) return 0;
-    int max = (ctx->laya_max > 0) ? ctx->laya_max : 2;
-    if (!llm_try_acquire(max)) return 0;
+    if (!ctx->llm_pool) return 0;
+    if (!llm_pool_adquirir(ctx->llm_pool, prioridade, ctx->laya_queue_ms)) return 0;
     *usou_slot = 1;
     out->backend = DECISION_BACKEND_LAYA_HTTP;
     if (ctx->laya_url[0])
@@ -635,14 +629,14 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
             /* Fase 11: hibrida quando backend LLM + slot; senao local. */
             DecisionConfig cfg;
             int slot = 0;
-            llm_begin(ctx, &sp->dc, &cfg, &slot);
+            llm_begin(ctx, &sp->dc, &cfg, &slot, LLM_PRIO_NORMAL);
             int via_laya = 0;
             Decisao *dd = sp->rix
                 ? executar_decisao_hibrida_idx(prompt, sp->rix, pkg->chunks, pkg->num_chunks,
                                                pkg->embeddings, &cfg, &via_laya)
                 : executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
                                            pkg->embeddings, &cfg, &via_laya);
-            if (slot) llm_release();
+            if (slot) llm_release(ctx->llm_pool);
             const char *bname = via_laya ? "laya-http" : "local";
             float conf = dd->confianca; int pg = dd->pagina;
             char *ans = xstrdup(dd->resposta ? dd->resposta : "");
@@ -691,14 +685,14 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
         } else {
             DecisionConfig cfg;
             int slot = 0;
-            llm_begin(ctx, &sp->dc, &cfg, &slot);
+            llm_begin(ctx, &sp->dc, &cfg, &slot, LLM_PRIO_ALTA);
             int via_laya = 0;
             Decisao *d = sp->rix
                 ? executar_decisao_hibrida_idx(prompt, sp->rix, pkg->chunks, pkg->num_chunks,
                                                pkg->embeddings, &cfg, &via_laya)
-                : executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
+                :                 executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
                                            pkg->embeddings, &cfg, &via_laya);
-            if (slot) llm_release();
+            if (slot) llm_release(ctx->llm_pool);
             char *esc = json_escape(d->resposta);
             char *escc = json_escape(d->citacao ? d->citacao : "");
             char *js = (char *)xmalloc(strlen(esc) + strlen(escc) + 512);
@@ -1116,9 +1110,13 @@ int server_run(const ServerConfig *cfg) {
         snprintf(ctx.laya_url, sizeof ctx.laya_url, "%s", LAYA_URL_DEFAULT);
     ctx.laya_timeout_ms = (cfg->laya_timeout_ms > 0) ? cfg->laya_timeout_ms : 60000;
     ctx.laya_max = (cfg->laya_max > 0) ? cfg->laya_max : 2;
+    ctx.laya_queue = (cfg->laya_queue >= 0) ? cfg->laya_queue : LLM_POOL_FILA_DEFAULT;
+    ctx.laya_queue_ms = (cfg->laya_queue_ms >= 0) ? cfg->laya_queue_ms : LLM_POOL_ESPERA_DEFAULT_MS;
+    ctx.llm_pool = llm_pool_criar(ctx.laya_max, ctx.laya_queue);
     if (ctx.backend == DECISION_BACKEND_LAYA_HTTP)
-        printf("llm: backend=laya-http url=%s timeout=%dms slots=%d (fallback local automatico)\n",
-               ctx.laya_url, ctx.laya_timeout_ms, ctx.laya_max);
+        printf("llm: backend=laya-http url=%s timeout=%dms slots=%d fila=%d espera=%dms (cheia/estouro = fallback local)\n",
+                ctx.laya_url, ctx.laya_timeout_ms, ctx.laya_max,
+                ctx.laya_queue, ctx.laya_queue_ms);
     else
         printf("llm: backend=local (use --backend laya-http para inferencia via Laya)\n");
     fflush(stdout);
@@ -1140,6 +1138,7 @@ int server_run(const ServerConfig *cfg) {
     if (nwh == 0) {
         fprintf(stderr, "amandac: falha ao criar pool\n");
         free(wh);
+        llm_pool_liberar(ctx.llm_pool);
         q_destroy(&fq);
         sock_close(srv);
         return 1;
@@ -1154,6 +1153,7 @@ int server_run(const ServerConfig *cfg) {
     if (nth == 0) {
         fprintf(stderr, "amandac: falha ao criar pool\n");
         free(wth);
+        llm_pool_liberar(ctx.llm_pool);
         q_destroy(&fq);
         sock_close(srv);
         return 1;
@@ -1191,6 +1191,7 @@ int server_run(const ServerConfig *cfg) {
     free(wth);
 #endif
     q_destroy(&fq);
+    llm_pool_liberar(ctx.llm_pool);
     for (int i = 0; i < n_pkgs; i++) { free(spk[i].name); indice_liberar(spk[i].rix); }
     free(spk);
     sock_close(srv);

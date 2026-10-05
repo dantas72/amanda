@@ -42,6 +42,8 @@ typedef struct {
     char srv_laya_url[256];
     int srv_laya_timeout_ms;
     int srv_laya_max;
+    int srv_laya_queue;
+    int srv_laya_queue_ms;
     char srv_pacote[1024];
     int tem_servidor;
 } AmandaConfig;

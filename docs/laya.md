@@ -90,8 +90,18 @@ amandac.exe serve --package livro.amanda --port 8080 --backend laya-http
 - Qualquer falha (engine fora do ar, timeout `--laya-timeout-ms`,
   sem modelo ativo) cai para o motor local na hora.
 - `--laya-max N` (default 2) limita inferências simultâneas para
-  proteger o engine; sem slot, a resposta sai local. O campo
-  `"backend"` (`local`/`laya-http`) diz o caminho usado.
+  proteger o engine. O campo `"backend"` (`local`/`laya-http`) diz o
+  caminho usado.
+- Pool com prioridade: sem slot livre, o request **espera** numa fila
+  limitada em vez de cair na hora para o local. `POST /v1/decisions`
+  (núcleo tipado) tem prioridade **ALTA** sobre `POST
+  /v1/chat/completions` (NORMAL); FIFO entre iguais. Flags:
+  `--laya-queue N` (teto de esperas, default 16; `0` = sem espera,
+  comportamento antigo) e `--laya-queue-ms MS` (espera máxima,
+  default 5000; `0` = tenta uma vez). Fila cheia ou prazo esgotado =
+  fallback local honesto. Também via `serve --config`
+  (`servidor: laya_queue/laya_queue_ms`) e no Docker
+  (`LAYA_QUEUE`/`LAYA_QUEUE_MS`).
 - `POST /v1/embeddings` e `POST /v1/eval` seguem sempre locais.
 - Requer o caminho vivo da Fase 3 (slot chat do Laya apontado p/
   modelo com provider, ex. nimble no Ollama); senão tudo cai em
