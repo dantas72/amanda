@@ -36,19 +36,24 @@ cmake --build build --target version_bump   # паритет с build.bat (ув�
 ## CI
 GitHub Actions (`.github/workflows/ci.yml`): сборка + модульные тесты
 (`ctest`) + интеграция (`compile`/`inspect`/`ask`/serve smoke) на
-Windows и Linux (macOS временно исключён; см. фазу 7.5), с
-артефактами `amandac` + `amanda_tests` для каждого CI-релиза (фаза 7.6).
-Шаг Laya необязателен (SKIP без движка).
+Windows и Linux (macOS на паузе — мгновенное падение модульных
+тестов на M1 и Intel, см. `FASES.md`; у M2/M3/M4 нет бесплатных
+хостед-меток), с артефактами `amandac` + `amanda_tests` для каждого
+CI-релиза (фаза 7.6). Шаг Laya необязателен (SKIP без движка).
 
 ## Использование
 ```sh
 amandac compile --input examples/exemplo.txt --output exemplo.amanda
 amandac compile --config examples/config.yaml --output exemplo.amanda
 amandac inspect --package exemplo.amanda --stats
-amandac inspect --package exemplo.amanda --json   # машинный отчёт (фаза 7.6)
+amandac inspect --package exemplo.amanda --json   # машинный отчёт (фаза 7.6, с калибровкой v3)
 amandac ask --package exemplo.amanda "O que é entropia?"
+amandac ask --package exemplo.amanda "O que é entropia?" --json
 amandac eval --package exemplo.amanda --sample 0.1
+amandac calibrate --package exemplo.amanda --sample 0.5 --apply
 amandac serve --package exemplo.amanda --port 8080
+amandac serve --package cvm=livro1.amanda --package ibri=livro2.amanda --port 8080  # multi (фаза 13)
+amandac mcp --package exemplo.amanda   # MCP-сервер через stdio (OpenCode/агенты, см. docs/mcp.md)
 amandac version
 ```
 
@@ -62,7 +67,8 @@ amandac eval --package exemplo.amanda --sample 1.0 --json
 Проверяет выборку типизированных вопросов и сообщает точность
 (% верных страниц), калибровку (уверенность × точность, gap + ECE),
 задержку (цель ≤500 мс) и отказы (в области + зонды вне области).
-Подробности в `docs/eval.md`.
+Подробности в `docs/eval.md`. Регрессия естественных ответов:
+`scripts/check_gold.bat` (80 курированных вопросов, recall@2).
 
 ## Бэкенд Laya (фаза 3, необязательно)
 
@@ -75,50 +81,105 @@ Ollama, напр. `nimble`) и сочетает с локальным граун
 (страница/цитата/уверенность). Любой сбой автоматически переключается
 на локальный движок. Подробности в `docs/laya.md`.
 
-## Перекалибровка (фаза 6)
+## Перекалибровка (фаза 6, хранится в v3 с 12.4)
 
 ```sh
 amandac calibrate --package exemplo.amanda --sample 0.5
-amandac ask --package exemplo.amanda "Pergunta" --conf-center 0.100 --conf-slope 22.0 --limiar-recusa 0.90
-amandac eval --package exemplo.amanda --conf-center 0.100 --conf-slope 22.0 --limiar-recusa 0.90
+amandac calibrate --package exemplo.amanda --sample 0.5 --validacao examples/gold_cvm.json --apply
+amandac ask --package exemplo.amanda "Pergunta" --conf-center 0.200 --conf-slope 16.0 --limiar-recusa 0.85
+amandac eval --package exemplo.amanda --conf-center 0.200 --conf-slope 16.0 --limiar-recusa 0.85
 ```
 
-`calibrate` предлагает центр/наклон/порог, максимизирующие
-сбалансированную точность (принимать в области, отклонять зонды).
-Нули = исторический стандарт. Подробности и таблица по книгам в
-`docs/eval.md`.
+`calibrate` ищет по сетке (центр × наклон × порог, шаг порога 0.01)
+точку, максимизирующую сбалансированную точность (принимать в
+области, отклонять зонды); с `--validacao` цель становится
+`(bal + recall@2)/2` на размеченных естественных вопросах. `--apply`
+записывает в пакет (формат `.amanda` v3); `ask`/`eval`/`serve`
+подхватывают автоматически (флаг CLI главнее, `--ignore-calib`
+принуждает стандарт). Нули = исторический стандарт. Подробности и
+таблица по книгам в `docs/eval.md`.
 
-## Калиброванный serve (фаза 7.2)
+## Serve (фазы 7.2/7.5/11/13 + пул LLM)
 
 ```sh
-amandac serve --package exemplo.amanda --port 8080 --conf-center 0.100 --conf-slope 22.0 --limiar-recusa 0.90
+amandac serve --package exemplo.amanda --port 8080 --conf-center 0.200 --conf-slope 16.0 --limiar-recusa 0.85
+amandac serve --config examples/config.yaml
+AMANDA_API_KEY=segredo amandac serve --package exemplo.amanda --port 8080 --workers 8
 ```
 
-Применяет калибровку `calibrate`/`eval` к серверу (баннер показывает
-активные параметры). Бэкенд serve всегда локальный: при
-однопоточном сервере один LLM-вывод на запрос останавливал бы сервис
-(пересмотреть в фазе 7.5, с потоками). См. `docs/api.md`.
+Фиксированный пул воркеров с очередью (`--workers`, `--max-conns` =
+общий лимит с `503`), ключ через флаг/env/файл (никогда не логируется),
+`serve --config` (секция `servidor:`), лог доступа в `stderr`, без
+собственного TLS (в проде за reverse-proxy). Мультипакет по `"model"`
+(см. `docs/api.md`). С `--backend laya-http` chat/decisions идут в
+движок Laya с автоматическим локальным фолбэком (поле `"backend"`):
+пул LLM с приоритетом (`decisions` ВЫСОКИЙ > `chat` ОБЫЧНЫЙ,
+`--laya-queue`/`--laya-queue-ms`; полная очередь или истёкшее ожидание =
+локально, см. `docs/laya.md`).
+
+## MCP-сервер (ask/decisions для OpenCode и агентов)
+
+```sh
+amandac mcp --package exemplo.amanda
+```
+
+MCP-сервер через stdio (JSON-RPC, по сообщению на строку, лог в
+`stderr`): инструменты `ask`, `decisions`, `inspect`, `version`;
+мультипакет по `model`, как в `serve`. Шаблон в
+`examples/mcp_config.json`, подробности в `docs/mcp.md`.
+
+## Docker
+
+```sh
+docker build -t amandac .
+docker run --rm -p 8080:8080 -v /seus/amanda:/data amandac
+```
+
+Многостадийный образ (модульные тесты идут во время сборки);
+entrypoint отдаёт все `/data/*.amanda` либо выполняет любую команду
+(`mcp`, `inspect`, ...). Переменные (`PORT`, `AMANDA_API_KEY`,
+`WORKERS`, калибровка...) в `docs/docker.md`.
 
 ## Статус фаз
 
-Фазы 1–6 + 7.1 готовы (`FASES.md`, на португальском): ядро, CMake+CI,
-Laya-HTTP, SSE+embeddings, `eval`, `calibrate`, доки/гигиена.
-В работе: фаза 7 (7.2 калиброванный serve, 7.3 config+templates,
-7.4 PDF+, 7.5 надёжный сервер, 7.6 релиз).
+Фазы 1–13 готовы (`FASES.md`, на португальском) + **MCP-сервер**
+(`amandac mcp`: ask/decisions/inspect/version через stdio,
+`docs/mcp.md`) + **Docker** (многостадийный образ с тестами в сборке,
+`docs/docker.md`) + **пул LLM** с приоритетом (`decisions` > `chat`,
+`docs/laya.md`): чистое C-ядро под Windows, CMake+CI, Laya по HTTP,
+SSE+embeddings, `eval`, `calibrate` (+`--apply` v3 и `--validacao`),
+извлечение PDF+, надёжный корпоративный serve (пул, мультипакет по
+`model`), релизные артефакты, поиск BM25 + PT-стоп-слова +
+мультицитирование, реранк (стемминг/мусор/насыщенная норма/фразы),
+инвертированный индекс + кэш запросов. Ориентир (`amandac 1.0.39`,
+пакеты v3): CVM 86.64%, IBRI 87.41%, INVEST 88.27%, Direito 84.00%;
+задержка 0.3–5 мс; зонды 3/3; gold 75/80 проверен (см. `docs/eval.md`).
 
 ## Тесты
 ```bat
-gcc -O2 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\eval.c src\calibra.c src\config.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
+gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
 scripts\test_pipeline.bat
+scripts\check_gold.bat
 ```
+Ориентир: **220 проверок** + конвейер (10 шагов, вкл. MCP smoke)
++ gold (80 вопросов, recall@2). CI: Windows + Linux (`ctest` + MCP
+smoke + сборка Docker); macOS на паузе (см. `FASES.md`).
 
 ## Структура
 - `include/` публичные заголовки
 - `src/` реализация на C11 без внешних зависимостей (только `ws2_32` на Windows)
-- `docs/` спецификации формата, конвейера и API
+- `docs/` формат (`formato_amanda.md`), конвейер, API, eval, Laya, руководство, бизнес-туториал, MCP (`mcp.md`), Docker (`docker.md`)
+- `templates/` формулировки типизированных вопросов (+ паки `empresas/`: compliance, финансы, юриспруденция, поддержка)
+- `examples/` пример, `config.yaml`, smoke-фикстуры и регрессионные gold-наборы
 - `tests/` модульные тесты на C
 - `scripts/` интеграционные конвейеры
 - `version.bin` версия, читаемая бинарником и увеличиваемая при каждом `build.bat`
+
+## Дорожная карта (задокументировано; не реализовано)
+- **Тесты на GPU**: повторить живой Laya (nimble + llama3.2:3B) на GTX 1660 Ti и GPU 10GB+ (см. `docs/laya.md`).
+- **CI macOS + self-hosted M2-M4**: реактивировать с логом падения
+  (run 37075569182, шаг Unit tests, 0s на M1 и Intel) или локальным
+  тестом на настоящем Mac; кит готов в `docs/macos.md`.
 
 ## Версия
 `version.bin` — источник истины, увеличивается при каждом `build.bat`.

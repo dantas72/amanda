@@ -142,14 +142,15 @@ serve todos os `/data/*.amanda`, ou executa qualquer comando
 
 Fases 1–13 prontas (`FASES.md`) + **MCP server** (`amandac mcp`:
 ask/decisions/inspect/version via stdio, `docs/mcp.md`) + **Docker**
-(imagem multi-stage com testes no build, `docs/docker.md`):
+(imagem multi-stage com testes no build, `docs/docker.md`) + **pool
+LLM** com prioridade (`decisions` > `chat`, `docs/laya.md`):
 núcleo Windows em C puro, CMake+CI,
 Laya via HTTP, SSE+embeddings, `eval`, `calibrate` (+`--apply` v3 e
 `--validacao`), extração PDF+, serve robusto e enterprise (pool,
 multi-pacote por `model`), release com artefatos, retrieval BM25 +
 stopwords PT + multi-citação, rerank (stemming/junk/norma
 saturante/phrase), índice invertido + cache de query. Referência
-(`amandac 1.0.34`, pacotes v3): CVM 86.64%, IBRI 87.41%, INVEST 88.27%,
+(`amandac 1.0.39`, pacotes v3): CVM 86.64%, IBRI 87.41%, INVEST 88.27%,
 Direito 84.00%; latência 0.3–5ms; probes 3/3; gold 75/80 auditado
 (ver `docs/eval.md`).
 
@@ -173,8 +174,7 @@ Referência: **220 checks** + pipeline (10 etapas, incl. MCP smoke)
 - `scripts/` pipelines de integração
 - `version.bin` versão lida pelo binário e incrementada a cada `build.bat`
 
-## Roteiro futuro (pós-13, documentado; não implementado)
-- **Pool LLM**: fila própria com prioridade para inferências `laya-http` (hoje: slots com fallback imediato).
+## Roteiro futuro (documentado; não implementado)
 - **Testes em GPU**: repetir Laya vivo (nimble + llama3.2:3B) em GTX 1660 Ti e GPU 10GB+ (ver `docs/laya.md`).
 - **CI macOS + self-hosted M2-M4**: reativar com o log do crash
   (run 37075569182, etapa Unit tests, 0s em M1 e Intel) ou teste local
