@@ -93,7 +93,7 @@ DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend d
 （`"backend"` 字段）。真实流水线：`scripts/check_typesafe.bat` +
 `scripts/check_deepseek.bat`（无 Ollama/密钥时 SKIP）。详见
 `docs/typesafe.md`、`docs/deepseek.md` 与 `docs/jev.md`；实操指南
-`docs/gui_jev.md`（测试、分析、自建示例）。
+`docs/guia_jev.md`（测试、分析、自建示例）。
 
 ## 重校准（第 6 阶段，12.4 起存入 v3）
 

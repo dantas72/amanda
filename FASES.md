@@ -275,8 +275,9 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
     `check_typesafe.bat/.sh` (nimble + nuvem + 1 pin/livro, SKIP por
     etapa) + `check_deepseek.bat/.sh` (SKIP sem chave); pipeline 12
     etapas; CI com as etapas (`|| true`: sem Ollama/chaves/livros).
-  - Docs: `docs/typesafe.md`, `docs/deepseek.md`, `docs/gui_jev.md`
-    (guia hands-on: testar, analisar, criar exemplos),
+  - Docs: `docs/typesafe.md`, `docs/deepseek.md`, `docs/guia_jev.md`
+    (guia hands-on: testar, analisar, criar exemplos + teste real
+    só-nuvem 5/5),
     `examples/amanda.json` + `typesafe_request.json`, READMEs PT/EN/
     RU/ZH, `docs/docker.md`, guia.
   - Pós-entrega (pedido do usuário): `amandac.conf` (`KEY=valor` na

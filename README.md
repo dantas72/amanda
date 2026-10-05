@@ -98,7 +98,7 @@ Fallback local honesto (campo `"backend"`). Pipeline real:
 `scripts/check_typesafe.bat` + `scripts/check_deepseek.bat`
 (SKIP sem Ollama/chaves). Detalhes em `docs/typesafe.md`,
 `docs/deepseek.md` e `docs/jev.md`; guia prático em
-`docs/gui_jev.md` (testar, analisar, criar exemplos).
+`docs/guia_jev.md` (testar, analisar, criar exemplos).
 
 ## Recalibração (Fase 6, gravada em v3 na 12.4)
 

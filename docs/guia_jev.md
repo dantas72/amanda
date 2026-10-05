@@ -95,6 +95,26 @@ fallback) + fidelidade/gap/ECE/latência. Atenção: `eval` com nimble
 em CPU demora (1 chamada por pergunta amostrada) — use
 `--max-amostras 20` para uma primeira análise.
 
+## 4b. Teste real só-nuvem (resultado observado)
+
+Só `jev-latest` (chave em `amandac.conf`, sem Ollama), 1 pergunta +
+1 pin por livro:
+
+| pergunta | esperado | `backend` | noul | pág | recusada |
+|---|---|---|---|---|---|
+| entropia (exemplo) | 1 | typesafe-http | 0.92 | 1 ✓ | não |
+| companhia aberta (CVM) | 139 | typesafe-http | 0.09 | 139 ✓ | sim |
+| área de RI (IBRI) | 70 | typesafe-http | 0.70 | 70 ✓ | sim |
+| análise técnica (INV) | 81 | typesafe-http | 0.87 | 81 ✓ | não |
+| responsabilidade civil (DIR) | 531 | typesafe-http | 0.46 | 896 (531 na 2ª citação ✓) | sim |
+
+Rank 5/5 (4 top-1 + recall@2). Leitura: o `jev-latest` é mais
+rigoroso que o nimble — noul baixo em CVM/IBRI, e com os limiares
+calibrados aplicados nos livros (0.85/0.89) essas vieram
+`recusada:true`. É a ação calibrada correta (página certa,
+confiança abaixo do limiar do deploy); com `--limiar-recusa` menor
+ou `--ignore-calib`, responderiam.
+
 Regressão de respostas naturais (80 pins, recall@2):
 
 ```bat
