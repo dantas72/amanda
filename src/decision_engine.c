@@ -1,5 +1,7 @@
 #include "decision_engine.h"
 #include "laya_backend.h"
+#include "typesafe_backend.h"
+#include "deepseek_backend.h"
 #include "embedder.h"
 #include "utils.h"
 #include <stdio.h>
@@ -499,16 +501,46 @@ void liberar_decisao(Decisao *d) {
     free(d);
 }
 
-Decisao *executar_decisao_hibrida(const char *pergunta, Chunk *chunks, int num_chunks,
-                                  Embeddings *emb, const DecisionConfig *cfg,
-                                  int *usou_laya_out) {
-    if (usou_laya_out) *usou_laya_out = 0;
-    Decisao *local = executar_decisao(pergunta, chunks, num_chunks, emb, cfg);
-    if (!cfg || cfg->backend != DECISION_BACKEND_LAYA_HTTP) return local;
-    if (!pergunta || local->recusada) return local;
+const char *decision_backend_nome(int via) {
+    switch (via) {
+    case DECISION_BACKEND_LAYA_HTTP: return "laya-http";
+    case DECISION_BACKEND_TYPESAFE_HTTP: return "typesafe-http";
+    case DECISION_BACKEND_DEEPSEEK_HTTP: return "deepseek-http";
+    default: return "local";
+    }
+}
 
-    const char *url = cfg->laya_url[0] ? cfg->laya_url : LAYA_URL_DEFAULT;
-    int timeout = cfg->laya_timeout_ms > 0 ? cfg->laya_timeout_ms : LAYA_TIMEOUT_DEFAULT_MS;
+/* Nucleo remoto compartilhado pelas duas hibridas: recebe a decisao
+ * local (grounding pronto) e tenta o backend configurado.
+ * typesafe: calibra prob/conf pelo noul do JEV real (state = citacao
+ * local). laya/deepseek: redigem sobre a citacao. Qualquer falha =
+ * local intacto. *via_out: 0 local, 1 laya, 2 typesafe, 3 deepseek. */
+static Decisao *hibrida_remota(Decisao *local, const char *pergunta,
+                               const DecisionConfig *cfg, int *via_out) {
+    if (via_out) *via_out = 0;
+    if (!cfg || cfg->backend == DECISION_BACKEND_LOCAL) return local;
+    if (!pergunta || !local || local->recusada) return local;
+
+    if (cfg->backend == DECISION_BACKEND_TYPESAFE_HTTP) {
+        const char *ctx = (local->citacao && local->citacao[0])
+            ? local->citacao : (local->resposta ? local->resposta : "");
+        double noul = 0.0;
+        char *err = NULL;
+        TsStatus st = typesafe_judge(cfg->typesafe_url, cfg->typesafe_model,
+                                     cfg->typesafe_key, ctx, pergunta,
+                                     cfg->typesafe_timeout_ms, &noul, &err);
+        free(err);
+        if (st != TS_OK) return local;
+        float lim = (cfg->limiar_recusa > 0.0f) ? cfg->limiar_recusa : 0.3f;
+        local->probabilidade = (float)noul;
+        local->confianca = (float)noul;
+        local->recusada = (noul < (double)lim) ? 1 : 0;
+        if (via_out) *via_out = DECISION_BACKEND_TYPESAFE_HTTP;
+        return local;
+    }
+
+    int is_ds = (cfg->backend == DECISION_BACKEND_DEEPSEEK_HTTP);
+    if (!is_ds && cfg->backend != DECISION_BACKEND_LAYA_HTTP) return local;
 
     ByteBuf msg; buf_init(&msg);
     buf_append_cstr(&msg, "Com base SOMENTE no contexto abaixo, responda a pergunta "
@@ -521,11 +553,21 @@ Decisao *executar_decisao_hibrida(const char *pergunta, Chunk *chunks, int num_c
     msg.data[msg.len] = '\0';
 
     char *conteudo = NULL;
-    char *lerr = NULL;
-    LayaStatus st = laya_chat(url, (char *)msg.data, timeout, &conteudo, &lerr);
+    char *rerr = NULL;
+    int ok = 0;
+    if (is_ds) {
+        const char *url = cfg->deepseek_url[0] ? cfg->deepseek_url : DEEPSEEK_URL_DEFAULT;
+        int timeout = cfg->deepseek_timeout_ms > 0 ? cfg->deepseek_timeout_ms : DEEPSEEK_TIMEOUT_DEFAULT_MS;
+        ok = (deepseek_redact(url, cfg->deepseek_model, cfg->deepseek_key,
+                              (char *)msg.data, timeout, &conteudo, &rerr) == DS_OK);
+    } else {
+        const char *url = cfg->laya_url[0] ? cfg->laya_url : LAYA_URL_DEFAULT;
+        int timeout = cfg->laya_timeout_ms > 0 ? cfg->laya_timeout_ms : LAYA_TIMEOUT_DEFAULT_MS;
+        ok = (laya_chat(url, (char *)msg.data, timeout, &conteudo, &rerr) == LAYA_OK);
+    }
     buf_free(&msg);
-    free(lerr);
-    if (st != LAYA_OK) {
+    free(rerr);
+    if (!ok) {
         free(conteudo);
         return local;
     }
@@ -537,61 +579,27 @@ Decisao *executar_decisao_hibrida(const char *pergunta, Chunk *chunks, int num_c
     {
         ByteBuf b; buf_init(&b);
         buf_append_cstr(&b, conteudo);
-        buf_append_cstr(&b, " (via Laya)");
+        buf_append_cstr(&b, is_ds ? " (via DeepSeek)" : " (via Laya)");
         buf_reserve(&b, 1);
         b.data[b.len] = '\0';
         local->resposta = (char *)b.data;
     }
     free(conteudo);
-    if (usou_laya_out) *usou_laya_out = 1;
+    if (via_out) *via_out = is_ds ? DECISION_BACKEND_DEEPSEEK_HTTP : DECISION_BACKEND_LAYA_HTTP;
     return local;
+}
+
+Decisao *executar_decisao_hibrida(const char *pergunta, Chunk *chunks, int num_chunks,
+                                   Embeddings *emb, const DecisionConfig *cfg,
+                                   int *via_out) {
+    Decisao *local = executar_decisao(pergunta, chunks, num_chunks, emb, cfg);
+    return hibrida_remota(local, pergunta, cfg, via_out);
 }
 
 Decisao *executar_decisao_hibrida_idx(const char *pergunta, RetrievalIndex *idx,
                                       Chunk *chunks, int num_chunks,
                                       Embeddings *emb, const DecisionConfig *cfg,
-                                      int *usou_laya_out) {
-    if (usou_laya_out) *usou_laya_out = 0;
+                                      int *via_out) {
     Decisao *local = executar_decisao_idx(pergunta, idx, chunks, num_chunks, emb, cfg);
-    if (!cfg || cfg->backend != DECISION_BACKEND_LAYA_HTTP) return local;
-    if (!pergunta || local->recusada) return local;
-
-    const char *url = cfg->laya_url[0] ? cfg->laya_url : LAYA_URL_DEFAULT;
-    int timeout = cfg->laya_timeout_ms > 0 ? cfg->laya_timeout_ms : LAYA_TIMEOUT_DEFAULT_MS;
-
-    ByteBuf msg; buf_init(&msg);
-    buf_append_cstr(&msg, "Com base SOMENTE no contexto abaixo, responda a pergunta "
-                          "de forma direta em portugues. Se o contexto nao contiver "
-                          "a resposta, diga exatamente: NAO CONSTA.\n\nContexto:\n");
-    if (local->citacao) buf_append_cstr(&msg, local->citacao);
-    buf_append_cstr(&msg, "\n\nPergunta: ");
-    buf_append_cstr(&msg, pergunta);
-    buf_reserve(&msg, 1);
-    msg.data[msg.len] = '\0';
-
-    char *conteudo = NULL;
-    char *lerr = NULL;
-    LayaStatus st = laya_chat(url, (char *)msg.data, timeout, &conteudo, &lerr);
-    buf_free(&msg);
-    free(lerr);
-    if (st != LAYA_OK) {
-        free(conteudo);
-        return local;
-    }
-    if (strstr(conteudo, "NAO CONSTA") != NULL) {
-        free(conteudo);
-        return local;
-    }
-    free(local->resposta);
-    {
-        ByteBuf b; buf_init(&b);
-        buf_append_cstr(&b, conteudo);
-        buf_append_cstr(&b, " (via Laya)");
-        buf_reserve(&b, 1);
-        b.data[b.len] = '\0';
-        local->resposta = (char *)b.data;
-    }
-    free(conteudo);
-    if (usou_laya_out) *usou_laya_out = 1;
-    return local;
+    return hibrida_remota(local, pergunta, cfg, via_out);
 }

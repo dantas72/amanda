@@ -76,6 +76,23 @@ amandac ask --package exemplo.amanda "O que é entropia?" --backend laya-http --
 调用 LLM，如 `nimble`），并与本地 grounding（页码/引用/置信度）
 结合。任何失败都会自动回退到本地引擎。详见 `docs/laya.md`。
 
+## 真实后端：JEV/TypeSafe + DeepSeek
+
+```sh
+amandac ask --package exemplo.amanda "O que é entropia?" --json --backend typesafe-http --typesafe-url http://127.0.0.1:11434 --typesafe-model nimble
+TYPESAFE_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend typesafe-http --typesafe-model jev-latest
+DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend deepseek-http
+```
+
+`typesafe-http`（别名 `jev`）：真实 noul 裁决——TypeSafe 云
+`api.typesafe.ai` 或本地 Ollama nimble——在本地 grounding 之上校准
+置信度；`deepseek-http`：经 DeepSeek 云重写。密钥经标志/环境/文件
+（永不记入日志，永不写入 `amanda.json`）；端点与模型在
+`--config-json`（`examples/amanda.json`）。诚实的本地回退
+（`"backend"` 字段）。真实流水线：`scripts/check_typesafe.bat` +
+`scripts/check_deepseek.bat`（无 Ollama/密钥时 SKIP）。详见
+`docs/typesafe.md`、`docs/deepseek.md` 与 `docs/jev.md`。
+
 ## 重校准（第 6 阶段，12.4 起存入 v3）
 
 ```sh
@@ -149,11 +166,11 @@ docker run --rm -p 8080:8080 -v /seus/amanda:/data amandac
 
 ## 测试
 ```bat
-gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
+gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\typesafe_backend.c src\deepseek_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-基准：**220 项检查** + 流水线（10 步，含 MCP smoke）+ gold（80
+基准：**252 项检查** + 流水线（12 步，含 MCP smoke 与诚实 SKIP 的真实后端）+ gold（80
 问，recall@2）。CI：Windows + Linux（`ctest` + MCP smoke +
 Docker 构建）；macOS 已暂停（见 `FASES.md`）。
 
@@ -176,4 +193,4 @@ Docker 构建）；macOS 已暂停（见 `FASES.md`）。
 ## 版本
 `version.bin` 是唯一的版本来源，每次 `build.bat` 递增。
 最近一次本地构建：
-Build: `1.0.39`
+Build: `1.0.45`

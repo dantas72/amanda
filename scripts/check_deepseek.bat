@@ -1,0 +1,29 @@
+@echo off
+setlocal
+REM check_deepseek.bat - redacao real via DeepSeek (nuvem, com DEEPSEEK_API_KEY).
+REM Sem chave: SKIP honesto. NUNCA exibe a chave. CRLF.
+cd /d "%~dp0\.."
+if not exist amandac.exe (
+  echo [ERRO] amandac.exe nao encontrado. Rode build.bat primeiro.
+  exit /b 1
+)
+if not defined DEEPSEEK_API_KEY (
+  echo [deepseek] SKIP: DEEPSEEK_API_KEY ausente
+  exit /b 0
+)
+if not exist build\exemplo.amanda (
+  echo [deepseek] compilando pacote de teste...
+  amandac.exe compile --input examples\exemplo.txt --output build\exemplo.amanda --title "Exemplo Amanda"
+  if errorlevel 1 exit /b 1
+)
+set DS_OUT=%TEMP%\amanda_ds_out.json
+echo [deepseek] nuvem api.deepseek.com com deepseek-chat...
+amandac.exe ask --package build\exemplo.amanda "O que e entropia?" --json --backend deepseek-http --deepseek-model deepseek-chat --deepseek-timeout-ms 120000 > "%DS_OUT%"
+if errorlevel 1 exit /b 1
+findstr /c:"\"backend\":\"deepseek-http\"" "%DS_OUT%" >nul
+if errorlevel 1 (
+  echo [deepseek] FALHA: nuvem nao redigiu, confira chave/modelo/rede
+  exit /b 1
+)
+echo [deepseek] nuvem: OK
+echo [OK] deepseek smoke passou.

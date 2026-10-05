@@ -60,4 +60,14 @@ void llm_pool_devolver(LlmPool *p);
 void llm_pool_stats(LlmPool *p, long *atendidas_out,
                     long *fb_fila_out, long *fb_tempo_out);
 
+/* POST JSON generico (transporte dos backends nuvem/JEV).
+ * url: http://... (socket nativo) ou https://... (via curl do
+ * sistema, com TLS real). bearer opcional (Authorization; nunca
+ * logado). body: JSON pronto. Retorna 0 com *code_out (HTTP) e
+ * *rbody_out (corpo alocado) — mesmo com 4xx/5xx; != 0 em falha
+ * de transporte (erro alocado). */
+int http_post_json(const char *url, const char *bearer, const char *body,
+                   int timeout_ms, int *code_out, char **rbody_out,
+                   char **erro);
+
 #endif

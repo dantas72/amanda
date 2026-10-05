@@ -36,6 +36,8 @@ Variáveis de ambiente (todas opcionais):
 | `BACKEND` | `local` | `--backend` (`laya-http` exige `LAYA_URL` alcançável) |
 | `LAYA_URL` / `LAYA_TIMEOUT_MS` / `LAYA_MAX` | — | idem |
 | `LAYA_QUEUE` / `LAYA_QUEUE_MS` | `16` / `5000` | fila LLM com prioridade (decisions > chat) |
+| `TYPESAFE_URL` / `TYPESAFE_MODEL` / `TYPESAFE_TIMEOUT_MS` | nuvem / `jev-latest` / `120000` | backend `typesafe-http` (chave via `TYPESAFE_API_KEY` ou `TYPESAFE_KEY_FILE`) |
+| `DEEPSEEK_URL` / `DEEPSEEK_MODEL` / `DEEPSEEK_TIMEOUT_MS` | nuvem / `deepseek-chat` / `120000` | backend `deepseek-http` (chave via `DEEPSEEK_API_KEY` ou `DEEPSEEK_KEY_FILE`) |
 | `IGNORE_CALIB` | — | `--ignore-calib` |
 | `DATA_DIR` | `/data` | diretório varrido |
 

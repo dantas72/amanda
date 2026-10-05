@@ -81,6 +81,25 @@ Ollama, напр. `nimble`) и сочетает с локальным граун
 (страница/цитата/уверенность). Любой сбой автоматически переключается
 на локальный движок. Подробности в `docs/laya.md`.
 
+## Реальные бэкенды: JEV/TypeSafe + DeepSeek
+
+```sh
+amandac ask --package exemplo.amanda "O que é entropia?" --json --backend typesafe-http --typesafe-url http://127.0.0.1:11434 --typesafe-model nimble
+TYPESAFE_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend typesafe-http --typesafe-model jev-latest
+DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend deepseek-http
+```
+
+`typesafe-http` (алиас `jev`): настоящее noul-суждение — облако
+`api.typesafe.ai` или локальный nimble в Ollama — калибрует
+уверенность поверх локального граундинга; `deepseek-http`:
+облачная перегенерация через DeepSeek. Ключи через флаг/env/файл
+(никогда не логируются, никогда в `amanda.json`); endpoints и модели
+в `--config-json` (`examples/amanda.json`). Честный локальный
+фолбэк (поле `"backend"`). Реальный конвейер:
+`scripts/check_typesafe.bat` + `scripts/check_deepseek.bat`
+(SKIP без Ollama/ключей). Подробности в `docs/typesafe.md`,
+`docs/deepseek.md` и `docs/jev.md`.
+
 ## Перекалибровка (фаза 6, хранится в v3 с 12.4)
 
 ```sh
@@ -157,11 +176,12 @@ SSE+embeddings, `eval`, `calibrate` (+`--apply` v3 и `--validacao`),
 
 ## Тесты
 ```bat
-gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
+gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\typesafe_backend.c src\deepseek_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-Ориентир: **220 проверок** + конвейер (10 шагов, вкл. MCP smoke)
+Ориентир: **252 проверки** + конвейер (12 шагов, вкл. MCP smoke
+и реальные бэкенды с честным SKIP)
 + gold (80 вопросов, recall@2). CI: Windows + Linux (`ctest` + MCP
 smoke + сборка Docker); macOS на паузе (см. `FASES.md`).
 
@@ -184,4 +204,4 @@ smoke + сборка Docker); macOS на паузе (см. `FASES.md`).
 ## Версия
 `version.bin` — источник истины, увеличивается при каждом `build.bat`.
 Последняя локальная сборка:
-Build: `1.0.39`
+Build: `1.0.45`

@@ -15,6 +15,8 @@
 #include "calibra.h"
 #include "config.h"
 #include "mcp.h"
+#include "typesafe_backend.h"
+#include "deepseek_backend.h"
 #include "server.h"
 #include "utils.h"
 
@@ -1842,6 +1844,327 @@ static void test_llm_pool(void) {
     }
 }
 
+/* ============ Backends reais: SystemOne + DeepSeek (stubs) ============ */
+
+#define TTS_PORT 18091
+#define TDS_PORT 18092
+
+typedef struct {
+    int port;
+    volatile int *stop;
+    const char *body;
+    int code;
+} MiniStub;
+
+#ifdef _WIN32
+static unsigned __stdcall mini_stub(void *p) {
+#else
+static void *mini_stub(void *p) {
+#endif
+    MiniStub *m = (MiniStub *)p;
+#ifdef _WIN32
+    {
+        /* O processo pode estar com a contagem WSA zerada aqui
+         * (testes de serve fazem Startup/Cleanup balanceados). */
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+    }
+#endif
+    t75_sock srv = socket(AF_INET, SOCK_STREAM, 0);
+    if (srv == T75_INVALID) {
+#ifdef _WIN32
+        return 0;
+#else
+        return NULL;
+#endif
+    }
+    int opt = 1;
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof opt);
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_port = htons((unsigned short)m->port);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(srv, (struct sockaddr *)&a, sizeof a) != 0 || listen(srv, 8) != 0) {
+        t75_close(srv);
+#ifdef _WIN32
+        return 0;
+#else
+        return NULL;
+#endif
+    }
+    while (!*m->stop) {
+        struct sockaddr_in cli;
+#ifdef _WIN32
+        int cl = sizeof cli;
+#else
+        socklen_t cl = sizeof cli;
+#endif
+        t75_sock fd = accept(srv, (struct sockaddr *)&cli, &cl);
+        if (fd == T75_INVALID) {
+            if (*m->stop) break;
+            continue;
+        }
+        if (*m->stop) { t75_close(fd); break; }
+        /* consome pedido (cabecalho + corpo) sem interpretar;
+         * testa completude ANTES de bloquear no recv (senao deadlock:
+         * o cliente espera a resposta enquanto esperamos mais corpo). */
+        char hb[65536];
+        int got = 0, clen = 0, hdone = 0;
+        while (got < (int)sizeof(hb) - 1) {
+            if (hdone && got - hdone >= clen) break;
+            int r = recv(fd, hb + got, (int)sizeof(hb) - 1 - got, 0);
+            if (r <= 0) break;
+            got += r;
+            hb[got] = '\0';
+            if (!hdone) {
+                char *he = strstr(hb, "\r\n\r\n");
+                if (he) {
+                    char *clp = strstr(hb, "Content-Length:");
+                    if (clp) clen = atoi(clp + 15);
+                    hdone = (int)(he + 4 - hb);
+                }
+            }
+        }
+        const char *reason = (m->code == 200) ? "OK" : "Unauthorized";
+        size_t blen = m->body ? strlen(m->body) : 0;
+        char head[256];
+        snprintf(head, sizeof head,
+                 "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\n"
+                 "Content-Length: %lu\r\nConnection: close\r\n\r\n",
+                 m->code, reason, (unsigned long)blen);
+        send(fd, head, (int)strlen(head), 0);
+        if (blen) send(fd, m->body, (int)blen, 0);
+        t75_close(fd);
+    }
+    t75_close(srv);
+#ifdef _WIN32
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+static void mini_wait_port(int port) {
+    for (int i = 0; i < 50; i++) {
+        t75_sock s = socket(AF_INET, SOCK_STREAM, 0);
+        if (s != T75_INVALID) {
+            struct sockaddr_in a;
+            memset(&a, 0, sizeof a);
+            a.sin_family = AF_INET;
+            a.sin_port = htons((unsigned short)port);
+            a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            int ok = connect(s, (struct sockaddr *)&a, sizeof a);
+            t75_close(s);
+            if (ok == 0) break;
+        }
+        sleep_ms(100);
+    }
+}
+
+static void test_typesafe_deepseek(void) {
+    printf("[typesafe_deepseek]\n");
+    {
+        char ep[1024];
+        typesafe_endpoint("https://api.typesafe.ai", ep, sizeof ep);
+        CHECK(strcmp(ep, "https://api.typesafe.ai/v1/systemone") == 0, "ts: base nuvem + path");
+        typesafe_endpoint("http://127.0.0.1:11434/", ep, sizeof ep);
+        CHECK(strcmp(ep, "http://127.0.0.1:11434/v1/systemone") == 0, "ts: base local sem // duplo");
+        typesafe_endpoint("http://127.0.0.1:11434/v1/systemone", ep, sizeof ep);
+        CHECK(strcmp(ep, "http://127.0.0.1:11434/v1/systemone") == 0, "ts: URL completa intacta");
+        typesafe_endpoint(NULL, ep, sizeof ep);
+        CHECK(strcmp(ep, "https://api.typesafe.ai/v1/systemone") == 0, "ts: default nuvem");
+    }
+    CHECK(strcmp(decision_backend_nome(0), "local") == 0, "via 0 = local");
+    CHECK(strcmp(decision_backend_nome(1), "laya-http") == 0, "via 1 = laya-http");
+    CHECK(strcmp(decision_backend_nome(2), "typesafe-http") == 0, "via 2 = typesafe-http");
+    CHECK(strcmp(decision_backend_nome(3), "deepseek-http") == 0, "via 3 = deepseek-http");
+    CHECK(strcmp(decision_backend_nome(99), "local") == 0, "via invalido = local");
+    {
+        int code = 0;
+        char *rb = NULL;
+        char *err = NULL;
+        CHECK(http_post_json("ftp://x/y", NULL, "{}", 1000, &code, &rb, &err) != 0, "http: scheme invalido recusa");
+        free(rb);
+        free(err);
+    }
+    static const char ts_body[] =
+        "{\"model\":\"stub\",\"answers\":{\"suporte\":{\"type\":\"noul\",\"noul\":0.92}},"
+        "\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}";
+    static const char ds_body[] =
+        "{\"id\":\"chatcmpl-stub\",\"object\":\"chat.completion\","
+        "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\","
+        "\"content\":\"RESPOSTA-STUB-DEEPSEEK\"},\"finish_reason\":\"stop\"}],"
+        "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}";
+    static volatile int tts_stop = 0, tds_stop = 0;
+    static MiniStub mts;
+    memset(&mts, 0, sizeof mts);
+    mts.port = TTS_PORT; mts.stop = &tts_stop; mts.body = ts_body; mts.code = 200;
+    static MiniStub mds;
+    memset(&mds, 0, sizeof mds);
+    mds.port = TDS_PORT; mds.stop = &tds_stop; mds.body = ds_body; mds.code = 200;
+#ifdef _WIN32
+    _beginthreadex(NULL, 0, mini_stub, &mts, 0, NULL);
+    _beginthreadex(NULL, 0, mini_stub, &mds, 0, NULL);
+#else
+    {
+        pthread_t th;
+        pthread_create(&th, NULL, mini_stub, &mts);
+        pthread_detach(th);
+        pthread_create(&th, NULL, mini_stub, &mds);
+        pthread_detach(th);
+    }
+#endif
+    mini_wait_port(TTS_PORT);
+    mini_wait_port(TDS_PORT);
+    {
+        double noul = -1.0;
+        char *err = NULL;
+        TsStatus s = typesafe_judge("http://127.0.0.1:18091", "stub", NULL,
+                                    "contexto de teste", "pergunta?",
+                                    8000, &noul, &err);
+        CHECK(s == TS_OK && noul > 0.91 && noul < 0.93, "ts: judge stub noul 0.92");
+        free(err);
+    }
+    {
+        double noul = -1.0;
+        char *err = NULL;
+        TsStatus s = typesafe_judge("http://127.0.0.1:18099", "stub", NULL,
+                                    "ctx", "q?", 1500, &noul, &err);
+        CHECK(s == TS_UNAVAILABLE, "ts: porta fechada = UNAVAILABLE (fallback)");
+        free(err);
+    }
+    {
+        /* HTTP 401 (ex.: chave invalida) tambem e fallback honesto. */
+        static const char e401[] = "{\"error\":\"unauthorized\"}";
+        mts.code = 401;
+        mts.body = e401;
+        double noul = -1.0;
+        char *err = NULL;
+        TsStatus s = typesafe_judge("http://127.0.0.1:18091", "stub", NULL,
+                                    "ctx", "q?", 8000, &noul, &err);
+        CHECK(s == TS_UNAVAILABLE, "ts: HTTP 401 = UNAVAILABLE");
+        CHECK(err && strstr(err, "401") != NULL, "ts: erro cita o HTTP 401");
+        free(err);
+        mts.code = 200;
+        mts.body = ts_body;
+    }
+    {
+        char *content = NULL;
+        char *err = NULL;
+        DsStatus s = deepseek_redact("http://127.0.0.1:18092", "stub", NULL,
+                                     "responda: oi", 8000, &content, &err);
+        CHECK(s == DS_OK && content && strstr(content, "STUB-DEEPSEEK") != NULL, "ds: redact stub responde");
+        free(content);
+        free(err);
+    }
+    {
+        char *content = NULL;
+        char *err = NULL;
+        DsStatus s = deepseek_redact("http://127.0.0.1:18099", "stub", NULL,
+                                     "oi", 1500, &content, &err);
+        CHECK(s == DS_UNAVAILABLE, "ds: porta fechada = UNAVAILABLE (fallback)");
+        free(content);
+        free(err);
+    }
+    {
+        /* hibrida typesafe ponta a ponta contra o stub (via=2). */
+        DocumentoExtraido doc;
+        memset(&doc, 0, sizeof doc);
+        BlocoTexto bs;
+        bs.texto = "A capital do Brasil e Brasilia, inaugurada em 1960.";
+        bs.pagina = 7; bs.x = bs.y = bs.largura = bs.altura = 0;
+        doc.blocos = &bs; doc.num_blocos = 1; doc.num_paginas = 7;
+        int nc = 0;
+        Chunk *ch = dividir_em_chunks(&doc, 180, 0, &nc);
+        Embeddings *e = gerar_embeddings(ch, nc);
+        DecisionConfig cfg;
+        memset(&cfg, 0, sizeof cfg);
+        cfg.limiar_confianca = 0.7f;
+        cfg.top_k = 3;
+        cfg.limiar_recusa = 0.3f;
+        cfg.backend = DECISION_BACKEND_TYPESAFE_HTTP;
+        snprintf(cfg.typesafe_url, sizeof cfg.typesafe_url, "http://127.0.0.1:%d", TTS_PORT);
+        snprintf(cfg.typesafe_model, sizeof cfg.typesafe_model, "stub");
+        cfg.typesafe_timeout_ms = 8000;
+        RetrievalIndex *rix = indice_criar(ch, nc);
+        int via = -1;
+        Decisao *d = executar_decisao_hibrida_idx("Qual e a capital do Brasil?",
+                                                  rix, ch, nc, e, &cfg, &via);
+        CHECK(d && via == 2, "ts: hibrida via typesafe (2)");
+        if (d) {
+            CHECK(d->confianca > 0.91 && d->confianca < 0.93, "ts: confianca = noul do JEV");
+            CHECK(d->pagina == 7, "ts: grounding segue local (pagina)");
+            liberar_decisao(d);
+        }
+        /* stub fora do ar: fallback local honesto (via=0). */
+        snprintf(cfg.typesafe_url, sizeof cfg.typesafe_url, "http://127.0.0.1:18099");
+        d = executar_decisao_hibrida_idx("Qual e a capital do Brasil?",
+                                         rix, ch, nc, e, &cfg, &via);
+        CHECK(d && via == 0, "ts: falha = fallback local (0)");
+        if (d) liberar_decisao(d);
+        indice_liberar(rix);
+        liberar_chunks(ch, nc);
+        liberar_embeddings(e);
+    }
+    {
+        /* resolve_secret: flag > env > arquivo. */
+#ifdef _WIN32
+        _putenv("AMANDA_TEST_SECRET=do-env");
+#else
+        setenv("AMANDA_TEST_SECRET", "do-env", 1);
+#endif
+        char *k = amanda_resolve_secret("da-flag", "AMANDA_TEST_SECRET", NULL);
+        CHECK(k && strcmp(k, "da-flag") == 0, "secret: flag vence env");
+        free(k);
+        k = amanda_resolve_secret(NULL, "AMANDA_TEST_SECRET", NULL);
+        CHECK(k && strcmp(k, "do-env") == 0, "secret: env sem flag");
+        free(k);
+        const char *kf = "amanda_test_key.tmp";
+        FILE *f = fopen(kf, "w");
+        if (f) { fputs("  do-arquivo \n", f); fclose(f); }
+        k = amanda_resolve_secret(NULL, "AMANDA_TEST_AUSENTE", kf);
+        CHECK(k && strcmp(k, "do-arquivo") == 0, "secret: arquivo com trim");
+        free(k);
+        k = amanda_resolve_secret(NULL, "AMANDA_TEST_AUSENTE", NULL);
+        CHECK(k == NULL, "secret: nada = NULL");
+        remove(kf);
+#ifdef _WIN32
+        _putenv("AMANDA_TEST_SECRET=");
+#else
+        unsetenv("AMANDA_TEST_SECRET");
+#endif
+    }
+    {
+        /* amanda.json: secoes + overlay sem reset. */
+        const char *jf = "amanda_test_cfg.tmp";
+        FILE *f = fopen(jf, "w");
+        CHECK(f != NULL, "json: cria temporario");
+        if (f) {
+            fputs("{\"servidor\":{\"backend\":\"typesafe-http\",\"typesafe_model\":\"jev-latest\"},"
+                  "\"typesafe\":{\"url\":\"https://api.typesafe.ai\",\"model\":\"jev-1\"},"
+                  "\"decision_engine\":{\"limiar_recusa\":0.5}}", f);
+            fclose(f);
+        }
+        AmandaConfig ac;
+        config_defaults(&ac);
+        snprintf(ac.srv_laya_url, sizeof ac.srv_laya_url, "http://ja-existia:1");
+        char *cerr = NULL;
+        CHECK(config_ler_json(jf, &ac, &cerr) == 0, "json: le amanda.json");
+        CHECK(strcmp(ac.srv_backend, "typesafe-http") == 0, "json: backend do servidor");
+        CHECK(strcmp(ac.srv_typesafe_url, "https://api.typesafe.ai") == 0, "json: typesafe.url");
+        CHECK(strcmp(ac.srv_typesafe_model, "jev-1") == 0, "json: typesafe.model vence");
+        CHECK(ac.limiar_recusa == 0.5f && ac.tem_limiar == 1, "json: decision_engine.limiar");
+        CHECK(strcmp(ac.srv_laya_url, "http://ja-existia:1") == 0, "json: overlay preserva ausentes");
+        free(cerr);
+        CHECK(config_ler_json("amanda_test_ausente.tmp", &ac, &cerr) != 0, "json: arquivo ausente = erro");
+        free(cerr);
+        remove(jf);
+    }
+    tts_stop = 1;
+    tds_stop = 1;
+}
+
 static void test_mcp(void) {
     printf("[mcp]\n");
     Chunk *ch = (Chunk *)xcalloc(2, sizeof(Chunk));
@@ -1969,6 +2292,7 @@ int main(void) {
     test_serve_multi();
     test_mcp();
     test_llm_pool();
+    test_typesafe_deepseek();
     printf("\nresultado: %d ok, %d falhas\n", passes, fails);
     return fails ? 1 : 0;
 }

@@ -1,0 +1,11 @@
+{
+  "_comentario": "Exemplo de corpo SystemOne enviado pelo backend typesafe-http (state = citacao local, 1 pergunta noul 'suporte'). Envie a http://127.0.0.1:11434/v1/systemone (nimble) ou https://api.typesafe.ai/v1/systemone (Bearer TYPESAFE_API_KEY).",
+  "model": "jev-latest",
+  "state": "A entropia e uma medida da desordem de um sistema fisico. Na termodinamica, a segunda lei afirma que a entropia de um sistema isolado tende a aumentar com o tempo.",
+  "questions": {
+    "suporte": {
+      "type": "noul",
+      "instructions": "Dado o contexto acima, a pergunta do usuario e respondida de forma sustentada pelo contexto? Pergunta: O que e entropia?"
+    }
+  }
+}

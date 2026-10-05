@@ -80,6 +80,24 @@ Ollama, e.g. `nimble`) and combines it with local grounding
 (page/citation/confidence). Any failure automatically falls back to
 the local engine. Details in `docs/laya.md`.
 
+## Real backends: JEV/TypeSafe + DeepSeek
+
+```sh
+amandac ask --package exemplo.amanda "O que é entropia?" --json --backend typesafe-http --typesafe-url http://127.0.0.1:11434 --typesafe-model nimble
+TYPESAFE_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend typesafe-http --typesafe-model jev-latest
+DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend deepseek-http
+```
+
+`typesafe-http` (alias `jev`): real noul judgment — TypeSafe cloud
+`api.typesafe.ai` or local Ollama nimble — calibrates confidence
+over local grounding; `deepseek-http`: cloud redraft via DeepSeek.
+Keys via flag/env/file (never logged, never in `amanda.json`);
+endpoints and models in `--config-json` (`examples/amanda.json`).
+Honest local fallback (the `"backend"` field). Real pipeline:
+`scripts/check_typesafe.bat` + `scripts/check_deepseek.bat`
+(SKIP without Ollama/keys). Details in `docs/typesafe.md`,
+`docs/deepseek.md` and `docs/jev.md`.
+
 ## Recalibration (Phase 6, stored in v3 since 12.4)
 
 ```sh
@@ -157,11 +175,12 @@ Direito 84.00%; latency 0.3–5ms; probes 3/3; gold 75/80 audited
 
 ## Tests
 ```bat
-gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
+gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\typesafe_backend.c src\deepseek_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-Reference: **220 checks** + pipeline (10 steps, incl. MCP smoke)
+Reference: **252 checks** + pipeline (12 steps, incl. MCP smoke
+and real backends with honest SKIP)
 + gold (80 questions, recall@2). CI: Windows + Linux (`ctest` + MCP
 smoke + Docker build); macOS paused (see `FASES.md`).
 
@@ -184,4 +203,4 @@ smoke + Docker build); macOS paused (see `FASES.md`).
 ## Version
 `version.bin` is the source of truth, incremented on every `build.bat`.
 Last local build:
-Build: `1.0.39`
+Build: `1.0.45`

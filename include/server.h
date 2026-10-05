@@ -39,6 +39,15 @@ typedef struct {
        sobre chat (NORMAL); cheia/estouro = fallback local honesto. */
     int laya_queue;
     int laya_queue_ms;
+    /* Backends reais (chaves: malloc resolvido no CLI; nunca logar). */
+    char typesafe_url[256];
+    char typesafe_model[64];
+    char *typesafe_key;
+    int typesafe_timeout_ms;
+    char deepseek_url[256];
+    char deepseek_model[64];
+    char *deepseek_key;
+    int deepseek_timeout_ms;
     /* Fase 13: multi-pacote (roteado por "model", default 1o).
        Quando n_pkgs > 0, pkgs/nomes prevalecem sobre pkg (legado).
        Nomes unicos (ex.: basename sem extensao); "amanda" = alias
@@ -57,5 +66,10 @@ int server_run(const ServerConfig *cfg);
    Precedencia: flag CLI > env AMANDA_API_KEY > arquivo (trim).
    Nunca logar o valor retornado. */
 char *amanda_resolve_api_key(const char *flag, const char *file);
+
+/* Generico para segredos de backends (TYPESAFE_API_KEY,
+   DEEPSEEK_API_KEY...). Mesma precedencia e higiene; zere com memset
+   apos copiar. */
+char *amanda_resolve_secret(const char *flag, const char *env, const char *file);
 
 #endif

@@ -289,13 +289,13 @@ static char *run_ask(McpCtx *ctx, int pi, const char *pergunta, int top_k) {
                                   pkg->cal_center, pkg->cal_slope,
                                   pkg->cal_limiar);
     if (cfg.limiar_recusa == 0.0f) cfg.limiar_recusa = 0.3f;
-    int via_laya = 0;
+    int via = 0;
     Decisao *d = ctx->rix[pi]
         ? executar_decisao_hibrida_idx(pergunta, ctx->rix[pi],
                                        pkg->chunks, pkg->num_chunks,
-                                       pkg->embeddings, &cfg, &via_laya)
+                                       pkg->embeddings, &cfg, &via)
         : executar_decisao_hibrida(pergunta, pkg->chunks, pkg->num_chunks,
-                                   pkg->embeddings, &cfg, &via_laya);
+                                   pkg->embeddings, &cfg, &via);
     ByteBuf t;
     buf_init(&t);
     buf_append_cstr(&t, d->resposta ? d->resposta : "");
@@ -304,7 +304,7 @@ static char *run_ask(McpCtx *ctx, int pi, const char *pergunta, int top_k) {
         snprintf(meta, sizeof meta,
                  "\n\n[confianca=%.2f probabilidade=%.3f pagina=%d backend=%s%s]%s%s",
                  d->confianca, d->probabilidade, d->pagina,
-                 via_laya ? "laya-http" : "local",
+                 decision_backend_nome(via),
                  d->recusada ? " recusada" : "",
                  (d->citacao && d->citacao[0]) ? "\nCitacao: " : "",
                  (d->citacao && d->citacao[0]) ? d->citacao : "");
@@ -325,13 +325,13 @@ static char *run_decisions(McpCtx *ctx, int pi, const char *pergunta) {
                                   pkg->cal_center, pkg->cal_slope,
                                   pkg->cal_limiar);
     if (cfg.limiar_recusa == 0.0f) cfg.limiar_recusa = 0.3f;
-    int via_laya = 0;
+    int via = 0;
     Decisao *d = ctx->rix[pi]
         ? executar_decisao_hibrida_idx(pergunta, ctx->rix[pi],
                                        pkg->chunks, pkg->num_chunks,
-                                       pkg->embeddings, &cfg, &via_laya)
+                                       pkg->embeddings, &cfg, &via)
         : executar_decisao_hibrida(pergunta, pkg->chunks, pkg->num_chunks,
-                                   pkg->embeddings, &cfg, &via_laya);
+                                   pkg->embeddings, &cfg, &via);
     char *esc = json_escape(d->resposta ? d->resposta : "");
     char *escc = json_escape(d->citacao ? d->citacao : "");
     size_t need = strlen(esc) + strlen(escc) + 256;
@@ -341,7 +341,7 @@ static char *run_decisions(McpCtx *ctx, int pi, const char *pergunta) {
              "\"pagina\":%d,\"citacao\":\"%s\",\"recusada\":%s,\"backend\":\"%s\"}",
              esc, d->probabilidade, d->confianca, d->pagina, escc,
              d->recusada ? "true" : "false",
-             via_laya ? "laya-http" : "local");
+             decision_backend_nome(via));
     free(esc);
     free(escc);
     liberar_decisao(d);

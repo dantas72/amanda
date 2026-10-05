@@ -1,6 +1,8 @@
 #include "server.h"
 #include "decision_engine.h"
 #include "laya_backend.h"
+#include "typesafe_backend.h"
+#include "deepseek_backend.h"
 #include "eval.h"
 #include "utils.h"
 #include <stdio.h>
@@ -53,6 +55,15 @@ typedef struct {
     char laya_url[256];
     int laya_timeout_ms;
     int laya_max;
+    /* Backends reais (chaves resolvidas no CLI, nunca logadas). */
+    char typesafe_url[256];
+    char typesafe_model[64];
+    char typesafe_key[256];
+    int typesafe_timeout_ms;
+    char deepseek_url[256];
+    char deepseek_model[64];
+    char deepseek_key[256];
+    int deepseek_timeout_ms;
     /* Pool LLM: fila propria com prioridade (0 = sem espera). */
     LlmPool *llm_pool;
     int laya_queue;
@@ -61,10 +72,12 @@ typedef struct {
 
 /* Fase 13: chave via flag > env AMANDA_API_KEY > arquivo (trim).
    Retorna malloc (free) ou NULL = aberto. Nunca logar. */
-char *amanda_resolve_api_key(const char *flag, const char *file) {
+char *amanda_resolve_secret(const char *flag, const char *envname, const char *file) {
     if (flag && flag[0]) return xstrdup(flag);
-    const char *env = getenv("AMANDA_API_KEY");
-    if (env && env[0]) return xstrdup(env);
+    if (envname && envname[0]) {
+        const char *env = getenv(envname);
+        if (env && env[0]) return xstrdup(env);
+    }
     if (file && file[0]) {
         char *t = read_file_text(file);
         if (t) {
@@ -82,6 +95,10 @@ char *amanda_resolve_api_key(const char *flag, const char *file) {
         }
     }
     return NULL;
+}
+
+char *amanda_resolve_api_key(const char *flag, const char *file) {
+    return amanda_resolve_secret(flag, "AMANDA_API_KEY", file);
 }
 
 /* Fase 13: log de acesso em stderr (sem corpo, sem chave).
@@ -154,15 +171,40 @@ static void llm_release(LlmPool *pool) {
 }
 
 /* Monta cfg hibrida quando ha backend LLM + slot (imediato ou via
- * fila). Retorna 1 com *usou_slot = 1 se o chamador deve devolver. */
+ * fila). Retorna 1 com *usou_slot = 1 se o chamador deve devolver.
+ * Pool compartilhado entre os backends LLM. */
 static int llm_begin(const ReqCtx *ctx, const DecisionConfig *base,
                      DecisionConfig *out, int *usou_slot, int prioridade) {
     *usou_slot = 0;
     *out = *base;
-    if (ctx->backend != DECISION_BACKEND_LAYA_HTTP) return 0;
+    if (ctx->backend != DECISION_BACKEND_LAYA_HTTP &&
+        ctx->backend != DECISION_BACKEND_TYPESAFE_HTTP &&
+        ctx->backend != DECISION_BACKEND_DEEPSEEK_HTTP) return 0;
     if (!ctx->llm_pool) return 0;
     if (!llm_pool_adquirir(ctx->llm_pool, prioridade, ctx->laya_queue_ms)) return 0;
     *usou_slot = 1;
+    if (ctx->backend == DECISION_BACKEND_TYPESAFE_HTTP) {
+        out->backend = DECISION_BACKEND_TYPESAFE_HTTP;
+        if (ctx->typesafe_url[0])
+            snprintf(out->typesafe_url, sizeof out->typesafe_url, "%s", ctx->typesafe_url);
+        if (ctx->typesafe_model[0])
+            snprintf(out->typesafe_model, sizeof out->typesafe_model, "%s", ctx->typesafe_model);
+        if (ctx->typesafe_key[0])
+            snprintf(out->typesafe_key, sizeof out->typesafe_key, "%s", ctx->typesafe_key);
+        out->typesafe_timeout_ms = (ctx->typesafe_timeout_ms > 0) ? ctx->typesafe_timeout_ms : 120000;
+        return 1;
+    }
+    if (ctx->backend == DECISION_BACKEND_DEEPSEEK_HTTP) {
+        out->backend = DECISION_BACKEND_DEEPSEEK_HTTP;
+        if (ctx->deepseek_url[0])
+            snprintf(out->deepseek_url, sizeof out->deepseek_url, "%s", ctx->deepseek_url);
+        if (ctx->deepseek_model[0])
+            snprintf(out->deepseek_model, sizeof out->deepseek_model, "%s", ctx->deepseek_model);
+        if (ctx->deepseek_key[0])
+            snprintf(out->deepseek_key, sizeof out->deepseek_key, "%s", ctx->deepseek_key);
+        out->deepseek_timeout_ms = (ctx->deepseek_timeout_ms > 0) ? ctx->deepseek_timeout_ms : 120000;
+        return 1;
+    }
     out->backend = DECISION_BACKEND_LAYA_HTTP;
     if (ctx->laya_url[0])
         snprintf(out->laya_url, sizeof out->laya_url, "%s", ctx->laya_url);
@@ -630,14 +672,14 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
             DecisionConfig cfg;
             int slot = 0;
             llm_begin(ctx, &sp->dc, &cfg, &slot, LLM_PRIO_NORMAL);
-            int via_laya = 0;
+            int via = 0;
             Decisao *dd = sp->rix
                 ? executar_decisao_hibrida_idx(prompt, sp->rix, pkg->chunks, pkg->num_chunks,
-                                               pkg->embeddings, &cfg, &via_laya)
+                                               pkg->embeddings, &cfg, &via)
                 : executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
-                                           pkg->embeddings, &cfg, &via_laya);
+                                           pkg->embeddings, &cfg, &via);
             if (slot) llm_release(ctx->llm_pool);
-            const char *bname = via_laya ? "laya-http" : "local";
+            const char *bname = decision_backend_nome(via);
             float conf = dd->confianca; int pg = dd->pagina;
             char *ans = xstrdup(dd->resposta ? dd->resposta : "");
             liberar_decisao(dd);
@@ -686,12 +728,12 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
             DecisionConfig cfg;
             int slot = 0;
             llm_begin(ctx, &sp->dc, &cfg, &slot, LLM_PRIO_ALTA);
-            int via_laya = 0;
+            int via = 0;
             Decisao *d = sp->rix
                 ? executar_decisao_hibrida_idx(prompt, sp->rix, pkg->chunks, pkg->num_chunks,
-                                               pkg->embeddings, &cfg, &via_laya)
+                                               pkg->embeddings, &cfg, &via)
                 :                 executar_decisao_hibrida(prompt, pkg->chunks, pkg->num_chunks,
-                                           pkg->embeddings, &cfg, &via_laya);
+                                           pkg->embeddings, &cfg, &via);
             if (slot) llm_release(ctx->llm_pool);
             char *esc = json_escape(d->resposta);
             char *escc = json_escape(d->citacao ? d->citacao : "");
@@ -700,7 +742,7 @@ static int handle_conn(sock_t fd, const ReqCtx *ctx) {
                 "{\"resposta\":\"%s\",\"probabilidade\":%.4f,\"confianca\":%.4f,\"pagina\":%d,\"citacao\":\"%s\",\"recusada\":%s,\"backend\":\"%s\"}",
                 esc, d->probabilidade, d->confianca, d->pagina, escc,
                 d->recusada ? "true" : "false",
-                via_laya ? "laya-http" : "local");
+                decision_backend_nome(via));
             free(esc); free(escc);
             liberar_decisao(d);
             free(prompt);
@@ -1103,13 +1145,30 @@ int server_run(const ServerConfig *cfg) {
     ctx.api_key = cfg->api_key;
     ctx.max_body = max_body;
     ctx.eval_max = eval_max;
-    ctx.backend = (cfg->backend == DECISION_BACKEND_LAYA_HTTP) ? DECISION_BACKEND_LAYA_HTTP : DECISION_BACKEND_LOCAL;
+    ctx.backend = (cfg->backend == DECISION_BACKEND_LAYA_HTTP ||
+                   cfg->backend == DECISION_BACKEND_TYPESAFE_HTTP ||
+                   cfg->backend == DECISION_BACKEND_DEEPSEEK_HTTP)
+        ? cfg->backend : DECISION_BACKEND_LOCAL;
     if (cfg->laya_url[0])
         snprintf(ctx.laya_url, sizeof ctx.laya_url, "%s", cfg->laya_url);
     else
         snprintf(ctx.laya_url, sizeof ctx.laya_url, "%s", LAYA_URL_DEFAULT);
     ctx.laya_timeout_ms = (cfg->laya_timeout_ms > 0) ? cfg->laya_timeout_ms : 60000;
     ctx.laya_max = (cfg->laya_max > 0) ? cfg->laya_max : 2;
+    if (cfg->typesafe_url[0])
+        snprintf(ctx.typesafe_url, sizeof ctx.typesafe_url, "%s", cfg->typesafe_url);
+    if (cfg->typesafe_model[0])
+        snprintf(ctx.typesafe_model, sizeof ctx.typesafe_model, "%s", cfg->typesafe_model);
+    if (cfg->typesafe_key)
+        snprintf(ctx.typesafe_key, sizeof ctx.typesafe_key, "%s", cfg->typesafe_key);
+    ctx.typesafe_timeout_ms = (cfg->typesafe_timeout_ms > 0) ? cfg->typesafe_timeout_ms : 120000;
+    if (cfg->deepseek_url[0])
+        snprintf(ctx.deepseek_url, sizeof ctx.deepseek_url, "%s", cfg->deepseek_url);
+    if (cfg->deepseek_model[0])
+        snprintf(ctx.deepseek_model, sizeof ctx.deepseek_model, "%s", cfg->deepseek_model);
+    if (cfg->deepseek_key)
+        snprintf(ctx.deepseek_key, sizeof ctx.deepseek_key, "%s", cfg->deepseek_key);
+    ctx.deepseek_timeout_ms = (cfg->deepseek_timeout_ms > 0) ? cfg->deepseek_timeout_ms : 120000;
     ctx.laya_queue = (cfg->laya_queue >= 0) ? cfg->laya_queue : LLM_POOL_FILA_DEFAULT;
     ctx.laya_queue_ms = (cfg->laya_queue_ms >= 0) ? cfg->laya_queue_ms : LLM_POOL_ESPERA_DEFAULT_MS;
     ctx.llm_pool = llm_pool_criar(ctx.laya_max, ctx.laya_queue);
@@ -1117,8 +1176,20 @@ int server_run(const ServerConfig *cfg) {
         printf("llm: backend=laya-http url=%s timeout=%dms slots=%d fila=%d espera=%dms (cheia/estouro = fallback local)\n",
                 ctx.laya_url, ctx.laya_timeout_ms, ctx.laya_max,
                 ctx.laya_queue, ctx.laya_queue_ms);
+    else if (ctx.backend == DECISION_BACKEND_TYPESAFE_HTTP)
+        printf("llm: backend=typesafe-http url=%s model=%s timeout=%dms slots=%d fila=%d espera=%dms (cheia/estouro = fallback local)\n",
+                ctx.typesafe_url[0] ? ctx.typesafe_url : TYPESAFE_URL_DEFAULT,
+                ctx.typesafe_model[0] ? ctx.typesafe_model : TYPESAFE_MODEL_DEFAULT,
+                ctx.typesafe_timeout_ms, ctx.laya_max,
+                ctx.laya_queue, ctx.laya_queue_ms);
+    else if (ctx.backend == DECISION_BACKEND_DEEPSEEK_HTTP)
+        printf("llm: backend=deepseek-http url=%s model=%s timeout=%dms slots=%d fila=%d espera=%dms (cheia/estouro = fallback local)\n",
+                ctx.deepseek_url[0] ? ctx.deepseek_url : DEEPSEEK_URL_DEFAULT,
+                ctx.deepseek_model[0] ? ctx.deepseek_model : DEEPSEEK_MODEL_DEFAULT,
+                ctx.deepseek_timeout_ms, ctx.laya_max,
+                ctx.laya_queue, ctx.laya_queue_ms);
     else
-        printf("llm: backend=local (use --backend laya-http para inferencia via Laya)\n");
+        printf("llm: backend=local (use --backend laya-http|typesafe-http|deepseek-http para inferencia externa)\n");
     fflush(stdout);
 
     /* Fase 13: pool fixo; aceite conta fila+ativas no teto max_conns. */

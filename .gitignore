@@ -19,3 +19,5 @@ Projeto.md
 CONTINUAR.md
 # livros de teste locais (nao publicar no GitHub)
 pdf/
+# config local com endpoints (sem segredos, mas pessoal; o modelo e examples/amanda.json)
+/amanda.json

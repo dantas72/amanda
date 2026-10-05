@@ -9,6 +9,14 @@ typedef struct {
     int top_k;
     int backend;
     char laya_url[256];
+    char typesafe_url[256];
+    char typesafe_model[64];
+    char typesafe_key[256];
+    int typesafe_timeout_ms;
+    char deepseek_url[256];
+    char deepseek_model[64];
+    char deepseek_key[256];
+    int deepseek_timeout_ms;
     float conf_center;
     float conf_slope;
     float limiar_recusa;
@@ -42,6 +50,8 @@ typedef struct {
     double taxa_recusa_probe;
     int pass_latencia;
     int via_laya;
+    int via_typesafe;
+    int via_deepseek;
     int via_local;
     /* Fase 7.4: cobertura da extracao (derivada do pacote v2) */
     int cov_paginas;

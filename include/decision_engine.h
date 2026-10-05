@@ -28,6 +28,17 @@ typedef struct {
     int backend;
     char laya_url[256];
     int laya_timeout_ms;
+    /* Backends reais (JEV/TypeSafe + DeepSeek): julgamento/redacao
+       sobre o grounding local, com fallback automatico. Chaves via
+       flag > env > arquivo (nunca logadas). */
+    char typesafe_url[256];
+    char typesafe_model[64];
+    char typesafe_key[256];
+    int typesafe_timeout_ms;
+    char deepseek_url[256];
+    char deepseek_model[64];
+    char deepseek_key[256];
+    int deepseek_timeout_ms;
     /* Fase 6: calibracao do sigmoide conf = S((score-center)*slope).
        Padrao (zeros): center=0.12, slope=12.0. Para customizar passe
        slope > 0 (center 0 = 0.12 apenas quando slope tambem e 0). */
@@ -37,16 +48,23 @@ typedef struct {
 
 #define DECISION_BACKEND_LOCAL 0
 #define DECISION_BACKEND_LAYA_HTTP 1
+#define DECISION_BACKEND_TYPESAFE_HTTP 2
+#define DECISION_BACKEND_DEEPSEEK_HTTP 3
+
+/* Nome canonico do caminho usado (para o campo "backend" nas
+ * respostas): local | laya-http | typesafe-http | deepseek-http. */
+const char *decision_backend_nome(int via);
 
 Decisao *executar_decisao(const char *pergunta, Chunk *chunks, int num_chunks,
                            Embeddings *emb, const DecisionConfig *cfg);
-/* Fase 3: tenta o backend configurado (laya-http) e cai para o motor local
-   em qualquer falha. *usou_laya_out (opcional) recebe 1 se a resposta veio
-   do Laya, 0 se veio do motor local. Grounding (pagina/citacao/confianca)
-   e sempre do indice local. */
+/* Fase 3 + reais: tenta o backend configurado (laya-http, typesafe-http,
+   deepseek-http) e cai para o motor local em qualquer falha.
+   *via_out (opcional) recebe 0 local, 1 laya, 2 typesafe, 3 deepseek.
+   Grounding (pagina/citacao) e sempre do indice local; typesafe
+   calibra probabilidade/confianca pelo noul do JEV real. */
 Decisao *executar_decisao_hibrida(const char *pergunta, Chunk *chunks, int num_chunks,
-                                  Embeddings *emb, const DecisionConfig *cfg,
-                                  int *usou_laya_out);
+                                   Embeddings *emb, const DecisionConfig *cfg,
+                                   int *via_out);
 RankItem *recuperar_chunks(const char *pergunta, Chunk *chunks, int num_chunks,
                            Embeddings *emb, int top_k, int *n_out);
 void liberar_decisao(Decisao *d);
@@ -72,7 +90,7 @@ Decisao *executar_decisao_idx(const char *pergunta, RetrievalIndex *idx,
 Decisao *executar_decisao_hibrida_idx(const char *pergunta, RetrievalIndex *idx,
                                       Chunk *chunks, int num_chunks,
                                       Embeddings *emb, const DecisionConfig *cfg,
-                                      int *usou_laya_out);
+                                      int *via_out);
 
 /* Cache de embeddings de query (global, thread-safe, FIFO 32).
    Chave = string exata da query. Retorna Embeddings novo (liberar

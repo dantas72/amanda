@@ -215,6 +215,11 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
     `serve --config` (`servidor: laya_queue/laya_queue_ms`), banner
     com fila/espera; `decisions` ALTA, `chat` NORMAL; cheia/estouro =
     fallback local honesto (campo `backend` intacto).
+  - `serve`: `--laya-queue N` (default 16, `0` = sem espera) +
+    `--laya-queue-ms MS` (default 5000, `0` = tenta uma vez),
+    `serve --config` (`servidor: laya_queue/laya_queue_ms`), banner
+    com fila/espera; `decisions` ALTA, `chat` NORMAL; cheia/estouro =
+    fallback local honesto (campo `backend` intacto).
   - Docker (`LAYA_QUEUE`/`LAYA_QUEUE_MS`), `docs/laya.md`,
     `docs/api.md`, `README.md`, `examples/config.yaml` (chaves
     comentadas). `serve`/`ask`/`mcp` locais inalterados.
@@ -223,3 +228,43 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
     YAML); `scripts/check_gold.sh` (port fiel do `.bat`, 80/80 pins
     idênticos verificados por script, SKIP sem `*_t74`, exit 1 em
     divergência) + etapa CI (`|| true`: CI não tem os livros).
+
+- [x] Fase Backends reais (2026-10-06, escopo Skill nº5 "tudo":
+  TypeSafe/JEV + DeepSeek + amanda.json + exemplos + pipeline real;
+  `amandac 1.0.45`, testes 252/252):
+  - Transporte `http_post_json` (`laya_backend`): `http://` pelo
+    socket nativo, `https://` via curl do sistema (TLS real, Bearer
+    por arquivo de headers — nunca na linha de comando); Bearer em
+    `http://` recusado (chave nunca em claro).
+  - `typesafe-http` (alias `jev`, `typesafe_backend.c`): System One
+    real — nuvem `api.typesafe.ai` (`jev-latest`, Bearer
+    `TYPESAFE_API_KEY`) ou nimble no Ollama (sem chave); `noul`
+    calibra prob/conf sobre grounding local; URL base ou completa.
+    Verificado vivo: nimble `noul=0.99` + `ask` ponta a ponta
+    (`backend: typesafe-http`, citacao local).
+  - `deepseek-http` (`deepseek_backend.c`): chat OpenAI-compatible
+    (`deepseek-chat`, Bearer `DEEPSEEK_API_KEY`) redige sobre a
+    citacao; `NAO CONSTA` preservado.
+  - Motor: `hibrida_remota` única (`decision_engine.c`), `via` 0–3 +
+    `decision_backend_nome()` em ask/serve/MCP/eval; `eval` conta
+    `via_typesafe/via_deepseek` (JSON + texto); pool LLM
+    compartilhado no serve (decisions ALTA).
+  - Flags `--typesafe-/--deepseek-url|model|timeout|key|key-file`
+    em ask/eval/serve/mcp (+ `serve --config` YAML e Docker env);
+    `amanda.json` (`--config-json`, overlay sem reset, sem segredos;
+    template em `examples/`; `/amanda.json` no `.gitignore`).
+    Precedencia: flags > json > yaml.
+  - Bugs achados: extrator noul casava `"type":"noul"` antes do valor
+    (exige `:` apos a chave — pego em sonda contra nimble real);
+    stub de teste lia corpo apos o cliente travar (break antes do
+    recv — deadlock); stub sem `WSAStartup` apos Cleanup dos testes
+    de serve; `ask` posicional engolia `--typesafe/deepseek-*`
+    (skip list). Todos com teste.
+  - Testes +32 (stubs SystemOne/DeepSeek: judge/redact/401/timeout/
+    hibrida via=2/fallback/secret/env-file/json/endpoint) +
+    `check_typesafe.bat/.sh` (nimble + nuvem + 1 pin/livro, SKIP por
+    etapa) + `check_deepseek.bat/.sh` (SKIP sem chave); pipeline 12
+    etapas; CI com as etapas (`|| true`: sem Ollama/chaves/livros).
+  - Docs: `docs/typesafe.md`, `docs/deepseek.md`,
+    `examples/amanda.json` + `typesafe_request.json`, READMEs PT/EN/
+    RU/ZH, `docs/docker.md`, guia.

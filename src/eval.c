@@ -85,6 +85,20 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
     dc.backend = c.backend;
     if (c.laya_url[0])
         snprintf(dc.laya_url, sizeof dc.laya_url, "%s", c.laya_url);
+    if (c.typesafe_url[0])
+        snprintf(dc.typesafe_url, sizeof dc.typesafe_url, "%s", c.typesafe_url);
+    if (c.typesafe_model[0])
+        snprintf(dc.typesafe_model, sizeof dc.typesafe_model, "%s", c.typesafe_model);
+    if (c.typesafe_key[0])
+        snprintf(dc.typesafe_key, sizeof dc.typesafe_key, "%s", c.typesafe_key);
+    if (c.typesafe_timeout_ms > 0) dc.typesafe_timeout_ms = c.typesafe_timeout_ms;
+    if (c.deepseek_url[0])
+        snprintf(dc.deepseek_url, sizeof dc.deepseek_url, "%s", c.deepseek_url);
+    if (c.deepseek_model[0])
+        snprintf(dc.deepseek_model, sizeof dc.deepseek_model, "%s", c.deepseek_model);
+    if (c.deepseek_key[0])
+        snprintf(dc.deepseek_key, sizeof dc.deepseek_key, "%s", c.deepseek_key);
+    if (c.deepseek_timeout_ms > 0) dc.deepseek_timeout_ms = c.deepseek_timeout_ms;
     dc.conf_center = c.conf_center;
     dc.conf_slope = c.conf_slope;
     if (c.tem_limiar) dc.limiar_recusa = c.limiar_recusa;
@@ -120,10 +134,13 @@ int eval_run(AmandaPackage *pkg, const EvalConfig *cfg, EvalReport *out, char **
         else if (q->tipo == TIPO_NOUL) out->n_noul++;
 
         long long t0 = now_ms();
-        int usou_laya = 0;
-        Decisao *d = executar_decisao_hibrida_idx(query, rix, pkg->chunks, pkg->num_chunks, pkg->embeddings, &dc, &usou_laya);
+        int via = 0;
+        Decisao *d = executar_decisao_hibrida_idx(query, rix, pkg->chunks, pkg->num_chunks, pkg->embeddings, &dc, &via);
         long long t1 = now_ms();
-        if (usou_laya) out->via_laya++; else out->via_local++;
+        if (via == DECISION_BACKEND_LAYA_HTTP) out->via_laya++;
+        else if (via == DECISION_BACKEND_TYPESAFE_HTTP) out->via_typesafe++;
+        else if (via == DECISION_BACKEND_DEEPSEEK_HTTP) out->via_deepseek++;
+        else out->via_local++;
         double lat = (double)(t1 - t0);
         soma_lat += lat;
         if (lat > lat_max) lat_max = lat;
@@ -197,7 +214,7 @@ char *eval_to_json(const EvalReport *r, const char *package_path) {
         "\"recusas_in_scope\":%d,"
         "\"por_tipo\":{\"choice\":[%d,%d],\"score\":[%d,%d],\"noul\":[%d,%d]},"
         "\"probes_fora_escopo\":%d,\"recusas_probe\":%d,\"taxa_recusa_probe\":%.4f,"
-        "\"via_laya\":%d,\"via_local\":%d,"
+        "\"via_laya\":%d,\"via_typesafe\":%d,\"via_deepseek\":%d,\"via_local\":%d,"
         "\"cobertura\":{\"paginas\":%d,\"blocos\":%d,\"chunks\":%d,"
         "\"chars\":%lld,\"chars_por_pag\":%.1f,\"perg_por_chunk\":%.2f,"
         "\"streams\":%d,\"streams_texto\":%d,\"falhas\":%d,\"fallback\":%s}}",
@@ -208,7 +225,7 @@ char *eval_to_json(const EvalReport *r, const char *package_path) {
         r->recusas_in,
         r->hit_choice, r->n_choice, r->hit_score, r->n_score, r->hit_noul, r->n_noul,
         r->n_probes, r->recusas_probe, r->taxa_recusa_probe,
-        r->via_laya, r->via_local,
+        r->via_laya, r->via_typesafe, r->via_deepseek, r->via_local,
         r->cov_paginas, r->cov_blocos, r->cov_chunks,
         r->cov_chars, r->cov_chars_por_pag, r->cov_perg_por_chunk,
         r->cov_total_streams, r->cov_text_streams, r->cov_failed,
@@ -237,8 +254,9 @@ void eval_print_text(const EvalReport *r, const char *package_path) {
            r->hit_choice, r->n_choice, r->hit_score, r->n_score, r->hit_noul, r->n_noul);
     printf("  recusa fora-escopo (probes): %d/%d (%.1f%%)\n",
            r->recusas_probe, r->n_probes, r->taxa_recusa_probe * 100.0);
-    if (r->via_laya + r->via_local > 0)
-        printf("  backend: laya=%d local=%d\n", r->via_laya, r->via_local);
+    if (r->via_laya + r->via_typesafe + r->via_deepseek + r->via_local > 0)
+        printf("  backend: laya=%d typesafe=%d deepseek=%d local=%d\n",
+               r->via_laya, r->via_typesafe, r->via_deepseek, r->via_local);
     printf("  cobertura: paginas=%d blocos=%d chunks=%d chars=%lld (%.0f/pag) perg/chunk=%.2f\n",
            r->cov_paginas, r->cov_blocos, r->cov_chunks,
            r->cov_chars, r->cov_chars_por_pag, r->cov_perg_por_chunk);

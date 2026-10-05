@@ -56,5 +56,13 @@ exec amandac serve $pkgs \
   ${LAYA_MAX:+--laya-max "$LAYA_MAX"} \
   ${LAYA_QUEUE:+--laya-queue "$LAYA_QUEUE"} \
   ${LAYA_QUEUE_MS:+--laya-queue-ms "$LAYA_QUEUE_MS"} \
+  ${TYPESAFE_URL:+--typesafe-url "$TYPESAFE_URL"} \
+  ${TYPESAFE_MODEL:+--typesafe-model "$TYPESAFE_MODEL"} \
+  ${TYPESAFE_TIMEOUT_MS:+--typesafe-timeout-ms "$TYPESAFE_TIMEOUT_MS"} \
+  ${TYPESAFE_KEY_FILE:+--typesafe-key-file "$TYPESAFE_KEY_FILE"} \
+  ${DEEPSEEK_URL:+--deepseek-url "$DEEPSEEK_URL"} \
+  ${DEEPSEEK_MODEL:+--deepseek-model "$DEEPSEEK_MODEL"} \
+  ${DEEPSEEK_TIMEOUT_MS:+--deepseek-timeout-ms "$DEEPSEEK_TIMEOUT_MS"} \
+  ${DEEPSEEK_KEY_FILE:+--deepseek-key-file "$DEEPSEEK_KEY_FILE"} \
   ${IGNORE_CALIB:+--ignore-calib} \
   "$@"

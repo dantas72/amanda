@@ -99,6 +99,12 @@ jobs:
         shell: bash
         run: sh scripts/check_gold.sh || true
 
+      - name: TypeSafe/DeepSeek checks (SKIP without Ollama/keys, never fail CI)
+        shell: bash
+        run: |
+          sh scripts/check_typesafe.sh || true
+          sh scripts/check_deepseek.sh || true
+
       - name: Docker build (validates Dockerfile + unit tests in image)
         if: matrix.os == 'ubuntu-latest'
         run: docker build -t amandac .

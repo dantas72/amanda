@@ -44,11 +44,22 @@ typedef struct {
     int srv_laya_max;
     int srv_laya_queue;
     int srv_laya_queue_ms;
+    char srv_typesafe_url[256];
+    char srv_typesafe_model[64];
+    int srv_typesafe_timeout_ms;
+    char srv_deepseek_url[256];
+    char srv_deepseek_model[64];
+    int srv_deepseek_timeout_ms;
     char srv_pacote[1024];
     int tem_servidor;
 } AmandaConfig;
 
 void config_defaults(AmandaConfig *c);
 int config_ler(const char *path, AmandaConfig *out, char **erro);
+/* amanda.json (JSON achatado por secoes; ver examples/amanda.json).
+ * Preenche SOMENTE as chaves presentes (overlay sobre o YAML).
+ * Segredos (chaves de API) nao pertencem a este arquivo: use env ou
+ * --*-key-file. Retorna 0 ok, != 0 com *erro alocado. */
+int config_ler_json(const char *path, AmandaConfig *out, char **erro);
 
 #endif

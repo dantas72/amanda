@@ -205,11 +205,11 @@ Depois de mudar, rode `calibrate` de novo (o wording muda os scores).
 
 ```bat
 build.bat
-gcc -O2 -std=c11 -Iinclude tests/test_all.c src/amanda.c src/utils.c src/pdf_extractor.c src/chunker.c src/embedder.c src/question_gen.c src/decision_engine.c src/laya_backend.c src/packager.c src/server.c src/eval.c src/calibra.c src/config.c src/mcp.c -o build/amanda_tests.exe -lws2_32 && build/amanda_tests.exe
+gcc -O2 -std=c11 -Iinclude tests/test_all.c src/amanda.c src/utils.c src/pdf_extractor.c src/chunker.c src/embedder.c src/question_gen.c src/decision_engine.c src/laya_backend.c src/typesafe_backend.c src/deepseek_backend.c src/packager.c src/server.c src/eval.c src/calibra.c src/config.c src/mcp.c -o build/amanda_tests.exe -lws2_32 && build/amanda_tests.exe
 scripts\test_pipeline.bat
 ```
 
-Referência: **220 checks** unitários + 10 etapas de integração
+Referência: **252 checks** unitários + 12 etapas de integração
 (2 etapas Laya com SKIP honesto sem o engine em `:8420`, MCP smoke,
 docker com SKIP sem docker)
 + regressão gold (`scripts\check_gold.bat`, 80 perguntas, recall@2).

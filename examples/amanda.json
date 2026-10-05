@@ -1,0 +1,23 @@
+{
+  "_comentario": "Modelo de amanda.json (lido via --config-json). SEM SEGREDOS aqui: chaves de API vao em variaveis de ambiente (TYPESAFE_API_KEY, DEEPSEEK_API_KEY, AMANDA_API_KEY) ou --*-key-file. Precedencia: flags CLI > este arquivo > config.yaml.",
+  "servidor": {
+    "porta": 8080,
+    "host": "127.0.0.1",
+    "backend": "local"
+  },
+  "decision_engine": {
+    "limiar_recusa": 0.3
+  },
+  "typesafe": {
+    "_comentario": "JEV local (nimble no Ollama, sem chave) OU nuvem TypeSafe (com TYPESAFE_API_KEY no ambiente).",
+    "url": "http://127.0.0.1:11434",
+    "model": "nimble",
+    "timeout_ms": 300000
+  },
+  "deepseek": {
+    "_comentario": "Nuvem DeepSeek (requer DEEPSEEK_API_KEY no ambiente).",
+    "url": "https://api.deepseek.com",
+    "model": "deepseek-chat",
+    "timeout_ms": 120000
+  }
+}

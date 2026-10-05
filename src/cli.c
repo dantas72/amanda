@@ -22,14 +22,18 @@ static void print_uso(void) {
     printf("Uso:\n");
     printf("  amandac compile --input <arq> --output <arq.amanda> [--title T] [--author A] [--lang pt-BR] [--chunk-words N] [--overlap N]\n");
     printf("            [--config <arq.yaml>] [--templates-dir DIR] [--max-choice N] [--max-score N] [--max-noul N]\n");
-    printf("            [--tj-espaco F] [--tj-salto F]\n");
+    printf("            [--tj-espaco F] [--tj-salto F] [--config-json <arq.json>]\n");
     printf("  amandac serve   --package <arq.amanda> [--package <outro.amanda>] [--port 8080] [--host 127.0.0.1] [--conf-center F] [--conf-slope F] [--limiar-recusa F]\n");
     printf("                  [--cors ORIGEM] [--api-key CHAVE] [--api-key-file ARQ] [--max-body BYTES] [--max-conns N] [--workers N] [--eval-max N]\n");
     printf("                  [--config <arq.yaml>] [--ignore-calib]\n");
-    printf("                  [--backend local|laya-http] [--laya-url URL] [--laya-timeout-ms MS] [--laya-max N]\n");
+    printf("                  [--backend local|laya-http|typesafe-http|deepseek-http] [--laya-url URL] [--laya-timeout-ms MS] [--laya-max N]\n");
+    printf("                  [--typesafe-url URL] [--typesafe-model M] [--typesafe-key K|--typesafe-key-file ARQ] [--typesafe-timeout-ms MS]\n");
+    printf("                  [--deepseek-url URL] [--deepseek-model M] [--deepseek-key K|--deepseek-key-file ARQ] [--deepseek-timeout-ms MS]\n");
     printf("                  [--laya-queue N] [--laya-queue-ms MS] (fila LLM com prioridade; 0ms = sem espera)\n");
     printf("  (serve multi: --package repetivel ou nome=caminho; \"model\" seleciona o pacote; \"amanda\" = 1o)\n");
-    printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
+    printf("  amandac ask     --package <arq.amanda> \"pergunta\" [--top-k 3] [--json] [--backend local|laya-http|typesafe-http|deepseek-http] [--laya-url URL]\n");
+    printf("                  [--typesafe-url URL] [--typesafe-model M] [--typesafe-key K|--typesafe-key-file ARQ]\n");
+    printf("                  [--deepseek-url URL] [--deepseek-model M] [--deepseek-key K|--deepseek-key-file ARQ]\n");
     printf("                  [--conf-center F] [--conf-slope F] [--limiar-recusa F] [--ignore-calib]\n");
     printf("  amandac inspect --package <arq.amanda> [--stats] [--questions N] [--chunks N] [--json]\n");
     printf("  amandac eval    --package <arq.amanda> [--sample 0.1] [--seed 42] [--top-k 3] [--json] [--backend local|laya-http] [--laya-url URL]\n");
@@ -38,8 +42,10 @@ static void print_uso(void) {
     printf("                  [--validacao <gold.json>] (repetivel; naturais como positivos + recall@1)\n");
     printf("  amandac version\n");
     printf("  amandac mcp     --package <arq.amanda> [--package <outro.amanda>] [--top-k 3]\n");
-    printf("                  [--conf-center F] [--conf-slope F] [--limiar-recusa F] [--ignore-calib]\n");
-    printf("                  [--backend local|laya-http] [--laya-url URL] [--laya-timeout-ms MS]\n");
+    printf("                  [--config-json <arq.json>] [--conf-center F] [--conf-slope F] [--limiar-recusa F] [--ignore-calib]\n");
+    printf("                  [--backend local|laya-http|typesafe-http|deepseek-http] [--laya-url URL] [--laya-timeout-ms MS]\n");
+    printf("                  [--typesafe-url URL] [--typesafe-model M] [--typesafe-key K|--typesafe-key-file ARQ]\n");
+    printf("                  [--deepseek-url URL] [--deepseek-model M] [--deepseek-key K|--deepseek-key-file ARQ]\n");
     printf("  (mcp: servidor MCP via stdio — stdin/stdout JSON-RPC; log em stderr; multi como no serve)\n");
     printf("Entradas aceitas: .pdf .txt .csv .json\n");
     printf("Calibracao (Fase 6): --conf-center F --conf-slope F --limiar-recusa F (ask, eval)\n");
@@ -63,6 +69,10 @@ static int flag_bool(int argc, char **argv, const char *flag) {
 static int parse_backend(const char *s) {
     if (!s) return DECISION_BACKEND_LOCAL;
     if (strcmp(s, "laya-http") == 0 || strcmp(s, "laya") == 0) return DECISION_BACKEND_LAYA_HTTP;
+    if (strcmp(s, "typesafe-http") == 0 || strcmp(s, "typesafe") == 0 || strcmp(s, "jev") == 0)
+        return DECISION_BACKEND_TYPESAFE_HTTP;
+    if (strcmp(s, "deepseek-http") == 0 || strcmp(s, "deepseek") == 0)
+        return DECISION_BACKEND_DEEPSEEK_HTTP;
     return DECISION_BACKEND_LOCAL;
 }
 
@@ -74,6 +84,89 @@ static void fill_backend(DecisionConfig *cfg, int argc, char **argv) {
     }
 }
 
+/* Backends reais: URLs/modelos/timeouts por flag; chaves por
+ * flag > env > arquivo (nunca logadas; nunca em amanda.json). */
+static void fill_typesafe(DecisionConfig *cfg, int argc, char **argv) {
+    const char *u = flag_val(argc, argv, "--typesafe-url", NULL);
+    if (u) snprintf(cfg->typesafe_url, sizeof cfg->typesafe_url, "%s", u);
+    const char *m = flag_val(argc, argv, "--typesafe-model", NULL);
+    if (m) snprintf(cfg->typesafe_model, sizeof cfg->typesafe_model, "%s", m);
+    const char *t = flag_val(argc, argv, "--typesafe-timeout-ms", NULL);
+    if (t) cfg->typesafe_timeout_ms = atoi(t);
+    char *k = amanda_resolve_secret(flag_val(argc, argv, "--typesafe-key", NULL),
+                                    "TYPESAFE_API_KEY",
+                                    flag_val(argc, argv, "--typesafe-key-file", NULL));
+    if (k) {
+        snprintf(cfg->typesafe_key, sizeof cfg->typesafe_key, "%s", k);
+        memset(k, 0, strlen(k));
+        free(k);
+    }
+}
+
+static void fill_deepseek(DecisionConfig *cfg, int argc, char **argv) {
+    const char *u = flag_val(argc, argv, "--deepseek-url", NULL);
+    if (u) snprintf(cfg->deepseek_url, sizeof cfg->deepseek_url, "%s", u);
+    const char *m = flag_val(argc, argv, "--deepseek-model", NULL);
+    if (m) snprintf(cfg->deepseek_model, sizeof cfg->deepseek_model, "%s", m);
+    const char *t = flag_val(argc, argv, "--deepseek-timeout-ms", NULL);
+    if (t) cfg->deepseek_timeout_ms = atoi(t);
+    char *k = amanda_resolve_secret(flag_val(argc, argv, "--deepseek-key", NULL),
+                                    "DEEPSEEK_API_KEY",
+                                    flag_val(argc, argv, "--deepseek-key-file", NULL));
+    if (k) {
+        snprintf(cfg->deepseek_key, sizeof cfg->deepseek_key, "%s", k);
+        memset(k, 0, strlen(k));
+        free(k);
+    }
+}
+
+/* Overlay de amanda.json sobre AmandaConfig (só chaves presentes).
+ * Precedencia final: flags CLI > --config-json > --config YAML.
+ * Retorna 0 ok, 1 em erro (só quando --config-json foi pedido). */
+static int overlay_acfg_json(AmandaConfig *acfg, int argc, char **argv) {
+    const char *jp = flag_val(argc, argv, "--config-json", NULL);
+    if (!jp) return 0;
+    char *cerr = NULL;
+    if (config_ler_json(jp, acfg, &cerr) != 0) {
+        fprintf(stderr, "config-json: %s\n", cerr ? cerr : "?");
+        free(cerr);
+        return 1;
+    }
+    return 0;
+}
+
+/* Para ask/eval/mcp (sem YAML): amanda.json preenche o que a flag
+ * nao deu. Chaves de API nunca vêm daqui (só flag/env/arquivo). */
+static void overlay_backend_json(DecisionConfig *cfg, int argc, char **argv) {
+    const char *jp = flag_val(argc, argv, "--config-json", NULL);
+    if (!jp) return;
+    AmandaConfig a;
+    config_defaults(&a);
+    char *e = NULL;
+    if (config_ler_json(jp, &a, &e) != 0) {
+        fprintf(stderr, "config-json: %s\n", e ? e : "?");
+        free(e);
+        return;
+    }
+    if (!flag_val(argc, argv, "--backend", NULL) && a.srv_backend[0])
+        cfg->backend = parse_backend(a.srv_backend);
+    if (!flag_val(argc, argv, "--laya-url", NULL) && a.srv_laya_url[0])
+        snprintf(cfg->laya_url, sizeof cfg->laya_url, "%s", a.srv_laya_url);
+    if (!flag_val(argc, argv, "--laya-timeout-ms", NULL) && a.srv_laya_timeout_ms > 0)
+        cfg->laya_timeout_ms = a.srv_laya_timeout_ms;
+    if (!flag_val(argc, argv, "--typesafe-url", NULL) && a.srv_typesafe_url[0])
+        snprintf(cfg->typesafe_url, sizeof cfg->typesafe_url, "%s", a.srv_typesafe_url);
+    if (!flag_val(argc, argv, "--typesafe-model", NULL) && a.srv_typesafe_model[0])
+        snprintf(cfg->typesafe_model, sizeof cfg->typesafe_model, "%s", a.srv_typesafe_model);
+    if (!flag_val(argc, argv, "--typesafe-timeout-ms", NULL) && a.srv_typesafe_timeout_ms > 0)
+        cfg->typesafe_timeout_ms = a.srv_typesafe_timeout_ms;
+    if (!flag_val(argc, argv, "--deepseek-url", NULL) && a.srv_deepseek_url[0])
+        snprintf(cfg->deepseek_url, sizeof cfg->deepseek_url, "%s", a.srv_deepseek_url);
+    if (!flag_val(argc, argv, "--deepseek-model", NULL) && a.srv_deepseek_model[0])
+        snprintf(cfg->deepseek_model, sizeof cfg->deepseek_model, "%s", a.srv_deepseek_model);
+    if (!flag_val(argc, argv, "--deepseek-timeout-ms", NULL) && a.srv_deepseek_timeout_ms > 0)
+        cfg->deepseek_timeout_ms = a.srv_deepseek_timeout_ms;
+}
 /* Fase 6: aplica parametros de calibracao (zeros = padrao do motor). */
 static void fill_calib(DecisionConfig *cfg, int argc, char **argv) {
     const char *cc = flag_val(argc, argv, "--conf-center", NULL);
@@ -102,6 +195,7 @@ static int cmd_compile(int argc, char **argv) {
             return 1;
         }
     }
+    if (overlay_acfg_json(&acfg, argc, argv)) return 1;
     /* precedencia: flag CLI > config > padrao */
     const char *f_input = flag_val(argc, argv, "--input", NULL);
     const char *f_output = flag_val(argc, argv, "--output", NULL);
@@ -260,6 +354,7 @@ static int cmd_serve(int argc, char **argv) {
             return 1;
         }
     }
+    if (overlay_acfg_json(&acfg, argc, argv)) return 1;
     /* coleta specs de pacotes: flags > config (pacote unico) */
     const char *specs[SRV_MAX_PKGS];
     int n_specs = 0;
@@ -346,7 +441,7 @@ static int cmd_serve(int argc, char **argv) {
         else if (acfg.tem_servidor && acfg.srv_eval_max > 0) cfg.eval_max = acfg.srv_eval_max;
         if (wo) cfg.workers = atoi(wo);
         else if (acfg.tem_servidor && acfg.srv_workers > 0) cfg.workers = acfg.srv_workers;
-        /* Fase 11: inferencia LLM no serve */
+        /* Fase 11 + reais: inferencia externa no serve */
         {
             const char *be = flag_val(argc, argv, "--backend", NULL);
             if (!be && acfg.tem_servidor && acfg.srv_backend[0]) be = acfg.srv_backend;
@@ -354,8 +449,9 @@ static int cmd_serve(int argc, char **argv) {
             if (!lu && acfg.tem_servidor && acfg.srv_laya_url[0]) lu = acfg.srv_laya_url;
             const char *lt = flag_val(argc, argv, "--laya-timeout-ms", NULL);
             const char *lm = flag_val(argc, argv, "--laya-max", NULL);
-            if (be && (strcmp(be, "laya-http") == 0 || strcmp(be, "laya") == 0))
-                cfg.backend = DECISION_BACKEND_LAYA_HTTP;
+            cfg.backend = parse_backend(be ? be : "local");
+            if (!be && acfg.tem_servidor && acfg.srv_backend[0])
+                cfg.backend = parse_backend(acfg.srv_backend);
             if (lu) snprintf(cfg.laya_url, sizeof cfg.laya_url, "%s", lu);
             if (lt) cfg.laya_timeout_ms = atoi(lt);
             else if (acfg.tem_servidor && acfg.srv_laya_timeout_ms > 0) cfg.laya_timeout_ms = acfg.srv_laya_timeout_ms;
@@ -369,9 +465,45 @@ static int cmd_serve(int argc, char **argv) {
                 if (lqm) cfg.laya_queue_ms = atoi(lqm);
                 else if (acfg.tem_servidor && acfg.srv_laya_queue_ms > 0) cfg.laya_queue_ms = acfg.srv_laya_queue_ms;
             }
+            /* TypeSafe/JEV (chaves nunca logadas; zera apos copiar). */
+            {
+                const char *tu = flag_val(argc, argv, "--typesafe-url", NULL);
+                if (!tu && acfg.tem_servidor && acfg.srv_typesafe_url[0]) tu = acfg.srv_typesafe_url;
+                const char *tm = flag_val(argc, argv, "--typesafe-model", NULL);
+                if (!tm && acfg.tem_servidor && acfg.srv_typesafe_model[0]) tm = acfg.srv_typesafe_model;
+                const char *tt = flag_val(argc, argv, "--typesafe-timeout-ms", NULL);
+                if (tu) snprintf(cfg.typesafe_url, sizeof cfg.typesafe_url, "%s", tu);
+                if (tm) snprintf(cfg.typesafe_model, sizeof cfg.typesafe_model, "%s", tm);
+                if (tt) cfg.typesafe_timeout_ms = atoi(tt);
+                else if (acfg.tem_servidor && acfg.srv_typesafe_timeout_ms > 0)
+                    cfg.typesafe_timeout_ms = acfg.srv_typesafe_timeout_ms;
+                char *tk = amanda_resolve_secret(flag_val(argc, argv, "--typesafe-key", NULL),
+                                                "TYPESAFE_API_KEY",
+                                                flag_val(argc, argv, "--typesafe-key-file", NULL));
+                cfg.typesafe_key = tk;
+            }
+            /* DeepSeek (idem). */
+            {
+                const char *du = flag_val(argc, argv, "--deepseek-url", NULL);
+                if (!du && acfg.tem_servidor && acfg.srv_deepseek_url[0]) du = acfg.srv_deepseek_url;
+                const char *dm = flag_val(argc, argv, "--deepseek-model", NULL);
+                if (!dm && acfg.tem_servidor && acfg.srv_deepseek_model[0]) dm = acfg.srv_deepseek_model;
+                const char *dt = flag_val(argc, argv, "--deepseek-timeout-ms", NULL);
+                if (du) snprintf(cfg.deepseek_url, sizeof cfg.deepseek_url, "%s", du);
+                if (dm) snprintf(cfg.deepseek_model, sizeof cfg.deepseek_model, "%s", dm);
+                if (dt) cfg.deepseek_timeout_ms = atoi(dt);
+                else if (acfg.tem_servidor && acfg.srv_deepseek_timeout_ms > 0)
+                    cfg.deepseek_timeout_ms = acfg.srv_deepseek_timeout_ms;
+                char *dk = amanda_resolve_secret(flag_val(argc, argv, "--deepseek-key", NULL),
+                                                "DEEPSEEK_API_KEY",
+                                                flag_val(argc, argv, "--deepseek-key-file", NULL));
+                cfg.deepseek_key = dk;
+            }
         }
     }
     int rc = server_run(&cfg);
+    if (cfg.typesafe_key) { memset((void *)cfg.typesafe_key, 0, strlen(cfg.typesafe_key)); free(cfg.typesafe_key); }
+    if (cfg.deepseek_key) { memset((void *)cfg.deepseek_key, 0, strlen(cfg.deepseek_key)); free(cfg.deepseek_key); }
     free((void *)cfg.api_key);
     for (int i = 0; i < n_specs; i++) liberar_package(pkgs[i]);
     return rc;
@@ -391,6 +523,14 @@ static int cmd_ask(int argc, char **argv) {
             if (strcmp(argv[i], "--package") == 0 || strcmp(argv[i], "--top-k") == 0 ||
                 strcmp(argv[i], "--question") == 0 || strcmp(argv[i], "--pergunta") == 0 ||
                 strcmp(argv[i], "--backend") == 0 || strcmp(argv[i], "--laya-url") == 0 ||
+                strcmp(argv[i], "--laya-timeout-ms") == 0 ||
+                strcmp(argv[i], "--typesafe-url") == 0 || strcmp(argv[i], "--typesafe-model") == 0 ||
+                strcmp(argv[i], "--typesafe-timeout-ms") == 0 || strcmp(argv[i], "--typesafe-key") == 0 ||
+                strcmp(argv[i], "--typesafe-key-file") == 0 ||
+                strcmp(argv[i], "--deepseek-url") == 0 || strcmp(argv[i], "--deepseek-model") == 0 ||
+                strcmp(argv[i], "--deepseek-timeout-ms") == 0 || strcmp(argv[i], "--deepseek-key") == 0 ||
+                strcmp(argv[i], "--deepseek-key-file") == 0 ||
+                strcmp(argv[i], "--config-json") == 0 ||
                 strcmp(argv[i], "--conf-center") == 0 || strcmp(argv[i], "--conf-slope") == 0 ||
                 strcmp(argv[i], "--limiar-recusa") == 0) {
                 i++; /* pula valor da flag */
@@ -428,25 +568,28 @@ static int cmd_ask(int argc, char **argv) {
     cfg.top_k = topk > 0 ? topk : 3;
     fill_backend(&cfg, argc, argv);
     fill_calib(&cfg, argc, argv);
+    fill_typesafe(&cfg, argc, argv);
+    fill_deepseek(&cfg, argc, argv);
+    overlay_backend_json(&cfg, argc, argv);
     /* Fase 12.4: pacote v3 vence o padrao; flag CLI vence o pacote. */
     if (!flag_bool(argc, argv, "--ignore-calib"))
         decisao_usar_calib_pacote(&cfg, pkg->tem_calib,
                                   pkg->cal_center, pkg->cal_slope, pkg->cal_limiar);
     if (cfg.limiar_recusa == 0.0f) cfg.limiar_recusa = 0.3f;
-    int via_laya = 0;
+    int via = 0;
     RetrievalIndex *rix = indice_criar(pkg->chunks, pkg->num_chunks);
-    Decisao *d = executar_decisao_hibrida_idx(q, rix, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg, &via_laya);
+    Decisao *d = executar_decisao_hibrida_idx(q, rix, pkg->chunks, pkg->num_chunks, pkg->embeddings, &cfg, &via);
     indice_liberar(rix);
     if (asjson) {
         char *esc = json_escape(d->resposta);
         printf("{\"resposta\":\"%s\",\"probabilidade\":%.4f,\"confianca\":%.4f,\"pagina\":%d,\"recusada\":%s,\"backend\":\"%s\"}\n",
                esc, d->probabilidade, d->confianca, d->pagina, d->recusada ? "true" : "false",
-               via_laya ? "laya-http" : "local");
+               decision_backend_nome(via));
         free(esc);
     } else {
         printf("%s\n", d->resposta);
         printf("\n[confianca=%.2f pagina=%d backend=%s%s]\n", d->confianca, d->pagina,
-               via_laya ? "laya-http" : "local",
+               decision_backend_nome(via),
                d->recusada ? " recusada" : "");
     }
     liberar_decisao(d);
@@ -531,6 +674,26 @@ static int cmd_eval(int argc, char **argv) {
         const char *url = flag_val(argc, argv, "--laya-url", NULL);
         if (url)
             snprintf(cfg.laya_url, sizeof cfg.laya_url, "%s", url);
+        DecisionConfig tmp;
+        memset(&tmp, 0, sizeof tmp);
+        fill_typesafe(&tmp, argc, argv);
+        fill_deepseek(&tmp, argc, argv);
+        overlay_backend_json(&tmp, argc, argv);
+        if (tmp.typesafe_url[0])
+            snprintf(cfg.typesafe_url, sizeof cfg.typesafe_url, "%s", tmp.typesafe_url);
+        if (tmp.typesafe_model[0])
+            snprintf(cfg.typesafe_model, sizeof cfg.typesafe_model, "%s", tmp.typesafe_model);
+        if (tmp.typesafe_key[0])
+            snprintf(cfg.typesafe_key, sizeof cfg.typesafe_key, "%s", tmp.typesafe_key);
+        if (tmp.typesafe_timeout_ms > 0) cfg.typesafe_timeout_ms = tmp.typesafe_timeout_ms;
+        if (tmp.deepseek_url[0])
+            snprintf(cfg.deepseek_url, sizeof cfg.deepseek_url, "%s", tmp.deepseek_url);
+        if (tmp.deepseek_model[0])
+            snprintf(cfg.deepseek_model, sizeof cfg.deepseek_model, "%s", tmp.deepseek_model);
+        if (tmp.deepseek_key[0])
+            snprintf(cfg.deepseek_key, sizeof cfg.deepseek_key, "%s", tmp.deepseek_key);
+        if (tmp.deepseek_timeout_ms > 0) cfg.deepseek_timeout_ms = tmp.deepseek_timeout_ms;
+        memset(&tmp, 0, sizeof tmp);
         const char *cc = flag_val(argc, argv, "--conf-center", NULL);
         const char *cs = flag_val(argc, argv, "--conf-slope", NULL);
         const char *lr = flag_val(argc, argv, "--limiar-recusa", NULL);
@@ -634,6 +797,9 @@ static int cmd_mcp(int argc, char **argv) {
     base.top_k = topk > 0 ? topk : 3;
     fill_backend(&base, argc, argv);
     fill_calib(&base, argc, argv);
+    fill_typesafe(&base, argc, argv);
+    fill_deepseek(&base, argc, argv);
+    overlay_backend_json(&base, argc, argv);
     {
         const char *lt = flag_val(argc, argv, "--laya-timeout-ms", NULL);
         if (lt) base.laya_timeout_ms = atoi(lt);

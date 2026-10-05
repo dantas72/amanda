@@ -348,6 +348,191 @@ LayaStatus laya_chat(const char *base_url, const char *message, int timeout_ms,
     return LAYA_OK;
 }
 
+/* Separa URL completa em base (scheme://host[:port]) e path (/...).
+ * Suporta http e https. Retorna 0 ok. */
+static int split_url(const char *url, char *base, size_t base_sz,
+                     char *path, size_t path_sz) {
+    if (!url || !base || !path) return -1;
+    const char *p = url;
+    int https = 0;
+    if (strncmp(p, "http://", 7) == 0) p += 7;
+    else if (strncmp(p, "https://", 8) == 0) { p += 8; https = 1; }
+    else return -1;
+    const char *slash = strchr(p, '/');
+    size_t hlen = slash ? (size_t)(slash - p) : strlen(p);
+    if (hlen == 0 || hlen + 9 >= base_sz) return -1;
+    snprintf(base, base_sz, "%s://%.*s", https ? "https" : "http",
+             (int)hlen, p);
+    if (slash) snprintf(path, path_sz, "%s", slash);
+    else snprintf(path, path_sz, "/");
+    return 0;
+}
+
+#ifdef _WIN32
+#include <process.h>
+#endif
+
+/* POST https via curl do sistema (TLS real). Corpo vai por arquivo
+ * temporario; Bearer via arquivo de headers (nunca na linha de
+ * comando). Retorna 0 com codigo+corpo, != 0 em falha. */
+static int https_post_curl(const char *url, const char *bearer,
+                           const char *body, int timeout_ms,
+                           int *code_out, char **rbody_out, char **erro) {
+    char bodyf[1024] = {0};
+    char hdrf[1024] = {0};
+    int ok = 0;
+#ifdef _WIN32
+    {
+        char tpath[MAX_PATH];
+        DWORD tl = GetTempPathA(sizeof tpath, tpath);
+        if (tl == 0 || tl >= sizeof tpath) {
+            if (erro) *erro = xstrdup("http: sem diretorio temporario");
+            return -1;
+        }
+        /* GetTempFileNameA e atomico (arquivo criado com nome unico). */
+        if (GetTempFileNameA(tpath, "amn", 0, bodyf) == 0) {
+            if (erro) *erro = xstrdup("http: falha ao criar temporario");
+            return -1;
+        }
+        snprintf(hdrf, sizeof hdrf, "%s.hdr", bodyf);
+    }
+#else
+    {
+        snprintf(bodyf, sizeof bodyf, "/tmp/amanda_http_XXXXXX");
+        int fd = mkstemp(bodyf);
+        if (fd < 0) {
+            if (erro) *erro = xstrdup("http: falha ao criar temporario");
+            return -1;
+        }
+        close(fd);
+        snprintf(hdrf, sizeof hdrf, "%s.hdr", bodyf);
+    }
+#endif
+    FILE *fb = fopen(bodyf, "wb");
+    if (!fb) {
+        if (erro) *erro = xstrdup("http: falha ao escrever temporario");
+        remove(bodyf);
+        return -1;
+    }
+    fwrite(body ? body : "", 1, body ? strlen(body) : 0, fb);
+    fclose(fb);
+    int use_hdr = (bearer && bearer[0]) ? 1 : 0;
+    if (use_hdr) {
+        FILE *fh = fopen(hdrf, "wb");
+        if (!fh) {
+            if (erro) *erro = xstrdup("http: falha ao escrever headers");
+            remove(bodyf);
+            return -1;
+        }
+        fprintf(fh, "Authorization: Bearer %s\r\n", bearer);
+        fclose(fh);
+    }
+
+    long secs = (timeout_ms + 999) / 1000;
+    if (secs < 1) secs = 1;
+    long conn = (secs > 30) ? 30 : secs;
+    char cmd[4096];
+    if (use_hdr)
+        snprintf(cmd, sizeof cmd,
+                 "curl -s -X POST \"%s\" --max-time %ld --connect-timeout %ld "
+                 "-H \"Content-Type: application/json\" -H @\"%s\" "
+                 "--data-binary @\"%s\" -w \"\nHTTP_CODE:%%{http_code}\"",
+                 url, secs, conn, hdrf, bodyf);
+    else
+        snprintf(cmd, sizeof cmd,
+                 "curl -s -X POST \"%s\" --max-time %ld --connect-timeout %ld "
+                 "-H \"Content-Type: application/json\" "
+                 "--data-binary @\"%s\" -w \"\nHTTP_CODE:%%{http_code}\"",
+                 url, secs, conn, bodyf);
+#ifdef _WIN32
+    FILE *pp = _popen(cmd, "r");
+#else
+    FILE *pp = popen(cmd, "r");
+#endif
+    ByteBuf out;
+    buf_init(&out);
+    if (pp) {
+        char chunk[4096];
+        size_t n;
+        while ((n = fread(chunk, 1, sizeof chunk, pp)) > 0) {
+            if (out.len + n > 1024u * 1024u) break;
+            buf_append(&out, chunk, n);
+        }
+#ifdef _WIN32
+        _pclose(pp);
+#else
+        pclose(pp);
+#endif
+    }
+    remove(bodyf);
+    if (use_hdr) remove(hdrf);
+    if (out.len == 0) {
+        buf_free(&out);
+        if (erro) *erro = xstrdup("http: curl sem resposta (sem rede? sem curl?)");
+        return -1;
+    }
+    buf_reserve(&out, 1);
+    out.data[out.len] = '\0';
+    char *mark = NULL;
+    /* ultimo marcador (corpo pode conter texto parecido) */
+    for (char *q = (char *)out.data; (q = strstr(q, "\nHTTP_CODE:")) != NULL; q++)
+        mark = q;
+    if (!mark) {
+        buf_free(&out);
+        if (erro) *erro = xstrdup("http: resposta curl sem codigo");
+        return -1;
+    }
+    int code = atoi(mark + 12);
+    *mark = '\0';
+    if (code_out) *code_out = code;
+    if (rbody_out) *rbody_out = xstrdup((char *)out.data);
+    else ok = 0;
+    buf_free(&out);
+    (void)ok;
+    return 0;
+}
+
+int http_post_json(const char *url, const char *bearer, const char *body,
+                   int timeout_ms, int *code_out, char **rbody_out,
+                   char **erro) {
+    if (!url || !url[0] || !rbody_out) {
+        if (erro) *erro = xstrdup("http: argumentos invalidos");
+        return -1;
+    }
+    if (timeout_ms <= 0) timeout_ms = 60000;
+    if (strncmp(url, "https://", 8) == 0)
+        return https_post_curl(url, bearer, body, timeout_ms,
+                               code_out, rbody_out, erro);
+    if (strncmp(url, "http://", 7) != 0) {
+        if (erro) *erro = xstrdup("http: URL deve comecar com http:// ou https://");
+        return -1;
+    }
+    char base[512], path[2048];
+    if (split_url(url, base, sizeof base, path, sizeof path) != 0) {
+        if (erro) *erro = xstrdup("http: URL invalida");
+        return -1;
+    }
+    /* http_roundtrip nao envia Authorization: Bearer em http anda
+     * sempre em claro, entao exigimos https quando ha chave. */
+    if (bearer && bearer[0]) {
+        if (erro) *erro = xstrdup("http: Bearer exige https:// (chave nunca em claro)");
+        return -1;
+    }
+    int code = 0;
+    char *rb = NULL;
+    char *herr = NULL;
+    int rc = http_roundtrip(base, "POST", path, body, timeout_ms,
+                            &code, &rb, &herr);
+    if (rc != 0) {
+        if (erro) *erro = herr ? herr : xstrdup("http: falha de transporte");
+        else free(herr);
+        return -1;
+    }
+    if (code_out) *code_out = code;
+    *rbody_out = rb;
+    return 0;
+}
+
 int laya_providers_ready(const char *base_url, int timeout_ms) {
     if (!base_url || !base_url[0]) base_url = LAYA_URL_DEFAULT;
     if (timeout_ms <= 0) timeout_ms = 8000;
