@@ -2223,6 +2223,23 @@ static void test_typesafe_deepseek(void) {
         free(cerr);
         remove(jf);
     }
+    {
+        /* Alias "jev" = secao typesafe (caminho do JEV). */
+        const char *jf = "amanda_test_jev.tmp";
+        FILE *f = fopen(jf, "w");
+        if (f) {
+            fputs("{\"jev\":{\"url\":\"http://127.0.0.1:11434\",\"model\":\"nimble\"}}", f);
+            fclose(f);
+        }
+        AmandaConfig ac;
+        config_defaults(&ac);
+        char *cerr = NULL;
+        CHECK(config_ler_json(jf, &ac, &cerr) == 0, "json: le secao jev");
+        CHECK(strcmp(ac.srv_typesafe_url, "http://127.0.0.1:11434") == 0, "json: jev.url = caminho do JEV");
+        CHECK(strcmp(ac.srv_typesafe_model, "nimble") == 0, "json: jev.model");
+        free(cerr);
+        remove(jf);
+    }
     tts_stop = 1;
     tds_stop = 1;
 }

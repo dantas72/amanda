@@ -231,7 +231,8 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
 
 - [x] Fase Backends reais (2026-10-06, escopo Skill nº5 "tudo":
   TypeSafe/JEV + DeepSeek + amanda.json + exemplos + pipeline real;
-  `amandac 1.0.46`, testes 263/263):
+  `amandac 1.0.47`, testes 266/266
+  (alias `jev` no amanda.json p/ o caminho do JEV):
   - Transporte `http_post_json` (`laya_backend`): `http://` pelo
     socket nativo, `https://` via curl do sistema (TLS real, Bearer
     por arquivo de headers — nunca na linha de comando); Bearer em

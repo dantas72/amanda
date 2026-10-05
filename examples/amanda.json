@@ -9,7 +9,7 @@
     "limiar_recusa": 0.3
   },
   "typesafe": {
-    "_comentario": "JEV local (nimble no Ollama, sem chave) OU nuvem TypeSafe (com TYPESAFE_API_KEY no ambiente).",
+    "_comentario": "JEV local (nimble no Ollama, sem chave) OU nuvem TypeSafe (com TYPESAFE_API_KEY no ambiente). 'typesafe' e o caminho do JEV (alias 'jev' tambem vale como nome de secao).",
     "url": "http://127.0.0.1:11434",
     "model": "nimble",
     "timeout_ms": 300000

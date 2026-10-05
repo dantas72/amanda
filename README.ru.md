@@ -181,7 +181,7 @@ gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-Ориентир: **263 проверки** + конвейер (12 шагов, вкл. MCP smoke
+Ориентир: **266 проверок** + конвейер (12 шагов, вкл. MCP smoke
 и реальные бэкенды с честным SKIP)
 + gold (80 вопросов, recall@2). CI: Windows + Linux (`ctest` + MCP
 smoke + сборка Docker); macOS на паузе (см. `FASES.md`).
@@ -205,4 +205,4 @@ smoke + сборка Docker); macOS на паузе (см. `FASES.md`).
 ## Версия
 `version.bin` — источник истины, увеличивается при каждом `build.bat`.
 Последняя локальная сборка:
-Build: `1.0.46`
+Build: `1.0.47`

@@ -342,6 +342,12 @@ int config_ler_json(const char *path, AmandaConfig *out, char **erro) {
         j_str(out, ini, fim, "model", out->srv_typesafe_model, sizeof out->srv_typesafe_model, &out->tem_servidor);
         j_int(out, ini, fim, "timeout_ms", &out->srv_typesafe_timeout_ms, &out->tem_servidor);
     }
+    /* Alias: "jev" e o mesmo backend SystemOne (ver --backend jev). */
+    if (j_secao(txt, "jev", &ini, &fim)) {
+        j_str(out, ini, fim, "url", out->srv_typesafe_url, sizeof out->srv_typesafe_url, &out->tem_servidor);
+        j_str(out, ini, fim, "model", out->srv_typesafe_model, sizeof out->srv_typesafe_model, &out->tem_servidor);
+        j_int(out, ini, fim, "timeout_ms", &out->srv_typesafe_timeout_ms, &out->tem_servidor);
+    }
     if (j_secao(txt, "deepseek", &ini, &fim)) {
         j_str(out, ini, fim, "url", out->srv_deepseek_url, sizeof out->srv_deepseek_url, &out->tem_servidor);
         j_str(out, ini, fim, "model", out->srv_deepseek_model, sizeof out->srv_deepseek_model, &out->tem_servidor);
