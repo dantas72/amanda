@@ -85,6 +85,8 @@ pelos dois caminhos com ou sem JEV por trás (ver `docs/mcp.md` e
 
 ## Notas
 
+- `AMANDA_DEBUG=1` mostra no `stderr` o motivo do fallback
+  (ex.: timeout, HTTP 401) — sem nunca exibir chaves.
 - Nimble em CPU é lento (minutos por pergunta em contexto grande);
   pipeline local usa 1 pergunta de propósito. Em GPU, repita com
   mais pins.

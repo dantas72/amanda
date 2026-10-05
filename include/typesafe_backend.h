@@ -9,8 +9,8 @@
  * (https://api.typesafe.ai, com Bearer TYPESAFE_API_KEY) ou um
  * nimble local via Ollama (http://127.0.0.1:11434, sem chave).
  * Sem dependencias novas: http:// pelo socket nativo, https:// via
- * curl do sistema (TLS real). A chave nunca e logada; em http com
- * chave o transporte recusa (chave nunca em claro).
+ * curl do sistema (TLS real). A chave nunca e logada; Bearer em http
+ * só vale em loopback (fora disso, https obrigatorio).
  */
 
 #define TYPESAFE_URL_DEFAULT "https://api.typesafe.ai"

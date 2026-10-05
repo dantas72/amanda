@@ -180,7 +180,7 @@ gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-Reference: **266 checks** + pipeline (12 steps, incl. MCP smoke
+Reference: **267 checks** + pipeline (12 steps, incl. MCP smoke
 and real backends with honest SKIP)
 + gold (80 questions, recall@2). CI: Windows + Linux (`ctest` + MCP
 smoke + Docker build); macOS paused (see `FASES.md`).
@@ -204,4 +204,4 @@ smoke + Docker build); macOS paused (see `FASES.md`).
 ## Version
 `version.bin` is the source of truth, incremented on every `build.bat`.
 Last local build:
-Build: `1.0.47`
+Build: `1.0.50`

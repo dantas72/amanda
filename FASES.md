@@ -231,7 +231,7 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
 
 - [x] Fase Backends reais (2026-10-06, escopo Skill nº5 "tudo":
   TypeSafe/JEV + DeepSeek + amanda.json + exemplos + pipeline real;
-  `amandac 1.0.47`, testes 266/266
+  `amandac 1.0.50`, testes 267/267
   (alias `jev` no amanda.json p/ o caminho do JEV):
   - Transporte `http_post_json` (`laya_backend`): `http://` pelo
     socket nativo, `https://` via curl do sistema (TLS real, Bearer
@@ -261,6 +261,15 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
     recv — deadlock); stub sem `WSAStartup` apos Cleanup dos testes
     de serve; `ask` posicional engolia `--typesafe/deepseek-*`
     (skip list). Todos com teste.
+  - Segunda passagem (nuvem real, `TYPESAFE_API_KEY` do usuário via
+    `amandac.conf`): `check_typesafe` 100% — nimble OK, `jev-latest`
+    OK, 4/4 pins dos livros (cvm 139, ibri 70, inv 81, dir 531).
+    Bugs reais achados: (1) Bearer em http era recusado sempre —
+    quebrava o nimble com chave no conf; agora vale em loopback
+    (não sai da máquina), https fora disso; (2) `\n` literal no `-w`
+    do curl quebrava o `cmd /c` (https nunca funcionou no Windows);
+    marcador sem newline + `2>&1` p/ diagnóstico. `AMANDA_DEBUG=1`
+    expõe o motivo do fallback (sem chaves). Total 267/267.
   - Testes +32 (stubs SystemOne/DeepSeek: judge/redact/401/timeout/
     hibrida via=2/fallback/secret/env-file/json/endpoint) +
     `check_typesafe.bat/.sh` (nimble + nuvem + 1 pin/livro, SKIP por

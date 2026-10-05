@@ -1988,6 +1988,16 @@ static void test_typesafe_deepseek(void) {
         free(rb);
         free(err);
     }
+    {
+        /* Bearer em http nao-loopback: recusado antes do dial (sem rede). */
+        int code = 0;
+        char *rb = NULL;
+        char *err = NULL;
+        int rc = http_post_json("http://192.0.2.1/x", "CHAVE", "{}", 1000, &code, &rb, &err);
+        CHECK(rc != 0 && err && strstr(err, "claro") != NULL, "http: Bearer em http externo recusa");
+        free(rb);
+        free(err);
+    }
     static const char ts_body[] =
         "{\"model\":\"stub\",\"answers\":{\"suporte\":{\"type\":\"noul\",\"noul\":0.92}},"
         "\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}";

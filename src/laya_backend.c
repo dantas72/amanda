@@ -243,7 +243,7 @@ static int send_all_nb(sock_t fd, const char *data, size_t len) {
 }
 
 static int http_roundtrip(const char *base_url, const char *method, const char *path,
-                          const char *body, int timeout_ms,
+                          const char *body, const char *bearer, int timeout_ms,
                           int *status_out, char **body_out, char **erro) {
     char host[256];
     int port = 80;
@@ -254,13 +254,22 @@ static int http_roundtrip(const char *base_url, const char *method, const char *
     sock_t fd = dial(host, port, timeout_ms, erro);
     if (fd == SOCK_INVALID) return -1;
 
-    char head[1024];
+    char head[1280];
     size_t blen = body ? strlen(body) : 0;
-    int hl = snprintf(head, sizeof head,
-        "%s %s HTTP/1.0\r\nHost: %s:%d\r\n"
-        "Content-Type: application/json\r\n"
-        "Content-Length: %llu\r\nConnection: close\r\n\r\n",
-        method, path, host, port, (unsigned long long)blen);
+    int hl;
+    if (bearer && bearer[0])
+        hl = snprintf(head, sizeof head,
+            "%s %s HTTP/1.0\r\nHost: %s:%d\r\n"
+            "Content-Type: application/json\r\n"
+            "Authorization: Bearer %s\r\n"
+            "Content-Length: %llu\r\nConnection: close\r\n\r\n",
+            method, path, host, port, bearer, (unsigned long long)blen);
+    else
+        hl = snprintf(head, sizeof head,
+            "%s %s HTTP/1.0\r\nHost: %s:%d\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: %llu\r\nConnection: close\r\n\r\n",
+            method, path, host, port, (unsigned long long)blen);
     if (send_all_nb(fd, head, (size_t)hl) != 0 ||
         (blen && send_all_nb(fd, body, blen) != 0)) {
         if (erro) *erro = xstrdup("laya: falha ao enviar requisicao");
@@ -316,7 +325,7 @@ LayaStatus laya_chat(const char *base_url, const char *message, int timeout_ms,
     char *rbody = NULL;
     char *herr = NULL;
     int rc = http_roundtrip(base_url, "POST", "/chat", (char *)jb.data,
-                            timeout_ms, &code, &rbody, &herr);
+                            NULL, timeout_ms, &code, &rbody, &herr);
     buf_free(&jb);
     if (rc != 0) {
         if (erro) *erro = herr ? herr : xstrdup("laya: engine indisponivel");
@@ -431,18 +440,21 @@ static int https_post_curl(const char *url, const char *bearer,
     long secs = (timeout_ms + 999) / 1000;
     if (secs < 1) secs = 1;
     long conn = (secs > 30) ? 30 : secs;
+    /* Marcador SEM newline: \n literal dentro do -w quebra o cmd /c
+     * do Windows (vira dois comandos). 2>&1 traz o erro do curl para
+     * o diagnostico (sucesso nao escreve em stderr). */
     char cmd[4096];
     if (use_hdr)
         snprintf(cmd, sizeof cmd,
                  "curl -s -X POST \"%s\" --max-time %ld --connect-timeout %ld "
                  "-H \"Content-Type: application/json\" -H @\"%s\" "
-                 "--data-binary @\"%s\" -w \"\nHTTP_CODE:%%{http_code}\"",
+                 "--data-binary @\"%s\" -w \"AMND_HTTP_CODE:%%{http_code}\" 2>&1",
                  url, secs, conn, hdrf, bodyf);
     else
         snprintf(cmd, sizeof cmd,
                  "curl -s -X POST \"%s\" --max-time %ld --connect-timeout %ld "
                  "-H \"Content-Type: application/json\" "
-                 "--data-binary @\"%s\" -w \"\nHTTP_CODE:%%{http_code}\"",
+                 "--data-binary @\"%s\" -w \"AMND_HTTP_CODE:%%{http_code}\" 2>&1",
                  url, secs, conn, bodyf);
 #ifdef _WIN32
     FILE *pp = _popen(cmd, "r");
@@ -474,15 +486,20 @@ static int https_post_curl(const char *url, const char *bearer,
     buf_reserve(&out, 1);
     out.data[out.len] = '\0';
     char *mark = NULL;
-    /* ultimo marcador (corpo pode conter texto parecido) */
-    for (char *q = (char *)out.data; (q = strstr(q, "\nHTTP_CODE:")) != NULL; q++)
+    /* ultima ocorrencia (corpo teoricamente poderia conter o texto) */
+    for (char *q = (char *)out.data; (q = strstr(q, "AMND_HTTP_CODE:")) != NULL; q++)
         mark = q;
     if (!mark) {
+        if (erro) {
+            char eb[256];
+            size_t n = out.len > 180 ? 180 : out.len;
+            snprintf(eb, sizeof eb, "http: curl falhou: %.*s", (int)n, (char *)out.data);
+            *erro = xstrdup(eb);
+        }
         buf_free(&out);
-        if (erro) *erro = xstrdup("http: resposta curl sem codigo");
         return -1;
     }
-    int code = atoi(mark + 12);
+    int code = atoi(mark + 15);
     *mark = '\0';
     if (code_out) *code_out = code;
     if (rbody_out) *rbody_out = xstrdup((char *)out.data);
@@ -512,17 +529,21 @@ int http_post_json(const char *url, const char *bearer, const char *body,
         if (erro) *erro = xstrdup("http: URL invalida");
         return -1;
     }
-    /* http_roundtrip nao envia Authorization: Bearer em http anda
-     * sempre em claro, entao exigimos https quando ha chave. */
-    if (bearer && bearer[0]) {
-        if (erro) *erro = xstrdup("http: Bearer exige https:// (chave nunca em claro)");
+    /* Bearer em http claro: só em loopback (nao sai da maquina).
+     * Qualquer outro http com chave e recusado (chave nunca em claro). */
+    int is_loopback = (strstr(base, "://127.0.0.1") != NULL ||
+                       strstr(base, "://localhost") != NULL ||
+                       strstr(base, "://[::1]") != NULL);
+    if (bearer && bearer[0] && !is_loopback) {
+        if (erro) *erro = xstrdup("http: Bearer exige https:// ou loopback (chave nunca em claro)");
         return -1;
     }
     int code = 0;
     char *rb = NULL;
     char *herr = NULL;
-    int rc = http_roundtrip(base, "POST", path, body, timeout_ms,
-                            &code, &rb, &herr);
+    int rc = http_roundtrip(base, "POST", path, body,
+                            (bearer && bearer[0]) ? bearer : NULL,
+                            timeout_ms, &code, &rb, &herr);
     if (rc != 0) {
         if (erro) *erro = herr ? herr : xstrdup("http: falha de transporte");
         else free(herr);
@@ -539,7 +560,7 @@ int laya_providers_ready(const char *base_url, int timeout_ms) {
     int code = 0;
     char *rbody = NULL;
     int rc = http_roundtrip(base_url, "GET", "/settings/available-models",
-                            NULL, timeout_ms, &code, &rbody, NULL);
+                            NULL, NULL, timeout_ms, &code, &rbody, NULL);
     if (rc != 0) return 0;
     int ok = (code >= 200 && code < 300 && json_array_nonempty(rbody, "models")) ? 1 : 0;
     free(rbody);

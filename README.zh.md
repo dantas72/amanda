@@ -171,7 +171,7 @@ gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils
 scripts\test_pipeline.bat
 scripts\check_gold.bat
 ```
-基准：**266 项检查** + 流水线（12 步，含 MCP smoke 与诚实 SKIP 的真实后端）+ gold（80
+基准：**267 项检查** + 流水线（12 步，含 MCP smoke 与诚实 SKIP 的真实后端）+ gold（80
 问，recall@2）。CI：Windows + Linux（`ctest` + MCP smoke +
 Docker 构建）；macOS 已暂停（见 `FASES.md`）。
 
@@ -194,4 +194,4 @@ Docker 构建）；macOS 已暂停（见 `FASES.md`）。
 ## 版本
 `version.bin` 是唯一的版本来源，每次 `build.bat` 递增。
 最近一次本地构建：
-Build: `1.0.47`
+Build: `1.0.50`

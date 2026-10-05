@@ -529,8 +529,14 @@ static Decisao *hibrida_remota(Decisao *local, const char *pergunta,
         TsStatus st = typesafe_judge(cfg->typesafe_url, cfg->typesafe_model,
                                      cfg->typesafe_key, ctx, pergunta,
                                      cfg->typesafe_timeout_ms, &noul, &err);
+        if (st != TS_OK) {
+            if (getenv("AMANDA_DEBUG"))
+                fprintf(stderr, "amanda: typesafe-judge falhou: %s\n",
+                        err ? err : "?");
+            free(err);
+            return local;
+        }
         free(err);
-        if (st != TS_OK) return local;
         float lim = (cfg->limiar_recusa > 0.0f) ? cfg->limiar_recusa : 0.3f;
         local->probabilidade = (float)noul;
         local->confianca = (float)noul;
@@ -566,11 +572,16 @@ static Decisao *hibrida_remota(Decisao *local, const char *pergunta,
         ok = (laya_chat(url, (char *)msg.data, timeout, &conteudo, &rerr) == LAYA_OK);
     }
     buf_free(&msg);
-    free(rerr);
     if (!ok) {
+        if (getenv("AMANDA_DEBUG"))
+            fprintf(stderr, "amanda: %s falhou: %s\n",
+                    is_ds ? "deepseek-redact" : "laya-chat",
+                    rerr ? rerr : "?");
+        free(rerr);
         free(conteudo);
         return local;
     }
+    free(rerr);
     if (strstr(conteudo, "NAO CONSTA") != NULL) {
         free(conteudo);
         return local;
