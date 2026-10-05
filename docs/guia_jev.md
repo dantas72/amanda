@@ -115,6 +115,29 @@ calibrados aplicados nos livros (0.85/0.89) essas vieram
 confiança abaixo do limiar do deploy); com `--limiar-recusa` menor
 ou `--ignore-calib`, responderiam.
 
+## 4c. Curva limiar × JEV (`scripts/sweep_typesafe`)
+
+Primeira varredura real (4 pins × 5 limiares, nuvem):
+
+| LIMIAR | RESP | RANK_OK | RANK_OK_RESP | RECUSA_RANK_OK |
+|---|---|---|---|---|
+| 0.30 | 3 | 3 | 2 | 1 |
+| 0.50 | 2 | 4 | 2 | 2 |
+| 0.70 | 1 | 4 | 1 | 3 |
+| 0.85 | 0 | 4 | 0 | 4 |
+| 0.89 | 0 | 3 | 0 | 3 |
+
+Leitura: rank estável em 4/4 (o JEV não mexe no ranking, só na
+confiança); responder cai 3→0 conforme o limiar sobe — tradeoff
+limpo e esperado. Ressalvas honestas: (1) a linha 0.30 marcou
+RANK_OK=3 mas re-runs isolados deram 4/4 — um miss transitório,
+recomenda-se repetir o sweep; (2) em 0.89 houve 1 fallback local
+(transiente de rede) e o pin foi ignorado. Rode de novo com:
+
+```bat
+scripts\sweep_typesafe.bat
+```
+
 Regressão de respostas naturais (80 pins, recall@2):
 
 ```bat

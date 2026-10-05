@@ -270,6 +270,14 @@ testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
     do curl quebrava o `cmd /c` (https nunca funcionou no Windows);
     marcador sem newline + `2>&1` p/ diagnóstico. `AMANDA_DEBUG=1`
     expõe o motivo do fallback (sem chaves). Total 267/267.
+  - Calibração dos livros: NÃO mexida (decisão documentada) — v3 é
+    do motor local; no JEV só o limiar atua; evidência fina (5
+    julgamentos); alavanca por deploy (`--limiar-recusa`) já resolve.
+  - Base de testes p/ limiar do JEV: `scripts/sweep_typesafe.bat/.sh`
+    (curva limiar × nuvem, 4 pins × 5 limiares = 20 chamadas rápidas,
+    SKIP sem chave/livros, exit 0 — nunca falha por tradeoff).
+    Sem código C; evidência futura antes de qualquer default por
+    backend. Guia do teste real só-nuvem em `docs/guia_jev.md` §4b.
   - Testes +32 (stubs SystemOne/DeepSeek: judge/redact/401/timeout/
     hibrida via=2/fallback/secret/env-file/json/endpoint) +
     `check_typesafe.bat/.sh` (nimble + nuvem + 1 pin/livro, SKIP por
