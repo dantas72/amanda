@@ -5,6 +5,8 @@ set -eu
 cd "$(dirname "$0")/.."
 BIN=./amandac
 if [ ! -x "$BIN" ] && [ -x ./build/amandac ]; then BIN=./build/amandac; fi
+if [ ! -x "$BIN" ] && [ -x ./build/amandac.exe ]; then BIN=./build/amandac.exe; fi
+if [ ! -x "$BIN" ] && [ -x ./build/Release/amandac.exe ]; then BIN=./build/Release/amandac.exe; fi
 if [ ! -x "$BIN" ]; then echo "[ERRO] binario amandac nao encontrado (cmake --build build)"; exit 1; fi
 if [ ! -f /tmp/exemplo.amanda ]; then
   echo "[mcp] compilando pacote de teste..."
