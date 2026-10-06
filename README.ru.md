@@ -18,8 +18,11 @@
 автоматический отказ отвечать вне области компетенции. Работает
 на 100% локально без зависимости от облака и интегрируется с
 вашими системами через CLI или API, совместимый с OpenAI, —
-автономно или с генерацией через LLM (см. `docs/laya.md`). Идеально
-для комплаенса, юриспруденции, финансов и поддержки клиентов.
+автономно или с генерацией через LLM (см. `docs/laya.md`), с
+опциональным настоящим суждением через JEV/TypeSafe (`jev-latest`
+в облаке или локальный nimble) либо генерацией через DeepSeek
+(см. `docs/typesafe.md`). Идеально для комплаенса, юриспруденции,
+финансов и поддержки клиентов.
 
 ## Сборка (Windows)
 ```bat
@@ -102,6 +105,30 @@ DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend d
 `docs/deepseek.md` и `docs/jev.md`; практика в `docs/guia_jev.md`
 (тест, анализ, свои примеры).
 
+## Реальные тесты с JEV (облако + nimble, проверено)
+
+Один вопрос, три пути — меняется только уверенность (локальный
+граундинг со страницей/цитатой тот же; JEV только судит):
+
+| вопрос | путь | `backend` | уверенность | стр. | отказ |
+|---|---|---|---|---|---|
+| энтропия (пример) | локально | `local` | 0.97 | 1 | нет |
+| энтропия | nimble (Ollama) | `typesafe-http` | 0.9978 | 1 | нет |
+| энтропия | `jev-latest` (облако) | `typesafe-http` | 0.92 | 1 | нет |
+| companhia aberta (CVM) | облако | `typesafe-http` | 0.09 | 139 | да* |
+| область RI (IBRI) | облако | `typesafe-http` | 0.70 | 70 | да* |
+| теханализ (INV) | облако | `typesafe-http` | 0.87 | 81 | нет |
+| гражд. ответственность (DIR) | облако | `typesafe-http` | 0.46 | 896 (531 — 2-я цитата) | да* |
+
+\* `да` при верной странице = калиброванное действие (уверенность
+ниже порога пакета v3; с меньшим `--limiar-recusa` ответил бы).
+Ранг 5/5; sweep порог × JEV (4 пина × 5 порогов) показывает
+стабильный ранг 4/4 и падение ответов 3→0 — чистый ожидаемый
+компромисс. Конвейер сегодня (`1.0.51`): `check_typesafe` LIVE
+(nimble + облако + 4/4 пина книг). Полные таблицы в
+`docs/guia_jev.md` (§4b облачный тест, §4c кривая sweep); флаги в
+`docs/typesafe.md`.
+
 ## Перекалибровка (фаза 6, хранится в v3 с 12.4)
 
 ```sh
@@ -167,30 +194,35 @@ entrypoint отдаёт все `/data/*.amanda` либо выполняет лю
 (`amandac mcp`: ask/decisions/inspect/version через stdio,
 `docs/mcp.md`) + **Docker** (многостадийный образ с тестами в сборке,
 `docs/docker.md`) + **пул LLM** с приоритетом (`decisions` > `chat`,
-`docs/laya.md`): чистое C-ядро под Windows, CMake+CI, Laya по HTTP,
+`docs/laya.md`) + **реальные бэкенды** (суждение JEV/TypeSafe из
+облака + nimble, перегенерация DeepSeek, `docs/typesafe.md`):
+чистое C-ядро под Windows, CMake+CI, Laya по HTTP,
 SSE+embeddings, `eval`, `calibrate` (+`--apply` v3 и `--validacao`),
 извлечение PDF+, надёжный корпоративный serve (пул, мультипакет по
 `model`), релизные артефакты, поиск BM25 + PT-стоп-слова +
 мультицитирование, реранк (стемминг/мусор/насыщенная норма/фразы),
 инвертированный индекс + кэш запросов. Ориентир (`amandac 1.0.39`,
 пакеты v3): CVM 86.64%, IBRI 87.41%, INVEST 88.27%, Direito 84.00%;
-задержка 0.3–5 мс; зонды 3/3; gold 75/80 проверен (см. `docs/eval.md`).
+задержка 0.3–5 мс; зонды 3/3; gold 75/80 проверен
+(перепроверен на `1.0.51`, см. `docs/eval.md`).
 
 ## Тесты
 ```bat
 gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\typesafe_backend.c src\deepseek_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
-scripts\test_pipeline.bat
-scripts\check_gold.bat
+scripts\test_pipeline.bat    :: 12 шагов (compile, serve, eval, calibrate, MCP, бэкенды; честный SKIP)
+scripts\check_gold.bat       :: 80 естественных вопросов, recall@2 (аудированный базис 75/80, без регрессии)
+scripts\check_typesafe.bat   :: настоящий JEV: локальный nimble + облако jev-latest + 1 пин на книгу
+scripts\check_deepseek.bat   :: SKIP без DEEPSEEK_API_KEY
+scripts\sweep_typesafe.bat   :: кривая порог × облако (никогда не падает из-за компромисса)
 ```
-Ориентир: **267 проверок** + конвейер (12 шагов, вкл. MCP smoke
-и реальные бэкенды с честным SKIP)
-+ gold (80 вопросов, recall@2). CI: Windows + Linux (`ctest` + MCP
-smoke + сборка Docker); macOS на паузе (см. `FASES.md`).
+Ориентир: **267 проверок** + конвейер + gold + живой JEV. CI:
+Windows + Linux (`ctest` + MCP smoke + сборка Docker); macOS на
+паузе (см. `FASES.md`).
 
 ## Структура
 - `include/` публичные заголовки
 - `src/` реализация на C11 без внешних зависимостей (только `ws2_32` на Windows)
-- `docs/` формат (`formato_amanda.md`), конвейер, API, eval, Laya, руководство, бизнес-туториал, MCP (`mcp.md`), Docker (`docker.md`)
+- `docs/` формат (`formato_amanda.md`), конвейер, API, eval, Laya, JEV/TypeSafe (`typesafe.md`, `jev.md`, `guia_jev.md`), DeepSeek (`deepseek.md`), руководство, бизнес-туториал, MCP (`mcp.md`), Docker (`docker.md`), macOS (`macos.md`)
 - `templates/` формулировки типизированных вопросов (+ паки `empresas/`: compliance, финансы, юриспруденция, поддержка)
 - `examples/` пример, `config.yaml`, smoke-фикстуры и регрессионные gold-наборы
 - `tests/` модульные тесты на C

@@ -16,7 +16,9 @@ MIT 许可证：`LICENSE`（PT-BR）、`LICENSE.en`（US English）、
 决策产物：每条回答都附带引用的来源与页码、经过校准的置信度，
 并对范围外问题自动拒绝。100% 本地运行，不依赖云端，通过 CLI
 或兼容 OpenAI 的 API 与业务系统集成——可独立运行，也可经 LLM
-起草（见 `docs/laya.md`）。适用于合规、法务、财务与客服场景。
+起草（见 `docs/laya.md`），还可选用 JEV/TypeSafe 真实裁决（云端
+`jev-latest` 或本地 nimble）或 DeepSeek 起草（见
+`docs/typesafe.md`）。适用于合规、法务、财务与客服场景。
 
 ## 构建（Windows）
 ```bat
@@ -95,6 +97,29 @@ DEEPSEEK_API_KEY=... amandac ask --package exemplo.amanda "Pergunta" --backend d
 `docs/typesafe.md`、`docs/deepseek.md` 与 `docs/jev.md`；实操指南
 `docs/guia_jev.md`（测试、分析、自建示例）。
 
+## JEV 真实测试（云端 + nimble，已验证）
+
+同一问题，三条路径——变化的只是置信度（本地 grounding 的页码/
+引用完全相同；JEV 只做裁决）：
+
+| 问题 | 路径 | `backend` | 置信度 | 页码 | 拒绝 |
+|---|---|---|---|---|---|
+| 熵（示例） | 本地 | `local` | 0.97 | 1 | 否 |
+| 熵 | nimble（Ollama） | `typesafe-http` | 0.9978 | 1 | 否 |
+| 熵 | `jev-latest`（云端） | `typesafe-http` | 0.92 | 1 | 否 |
+| companhia aberta（CVM） | 云端 | `typesafe-http` | 0.09 | 139 | 是* |
+| RI 范围（IBRI） | 云端 | `typesafe-http` | 0.70 | 70 | 是* |
+| 技术分析（INV） | 云端 | `typesafe-http` | 0.87 | 81 | 否 |
+| 民事责任（DIR） | 云端 | `typesafe-http` | 0.46 | 896（531 见第二引用） | 是* |
+
+\* 页码正确下的“是” = 已校准的正确动作（置信度低于 v3 包阈值；
+调低 `--limiar-recusa` 即可回答）。排序 5/5；阈值 × JEV 扫描
+（4 锚点 × 5 阈值）显示排序稳定 4/4、回答数 3→0——干净且符合
+预期的权衡。今日流水线（`1.0.51`）：`check_typesafe` LIVE
+（nimble + 云端 + 4/4 书籍锚点）。完整表格见
+`docs/guia_jev.md`（§4b 纯云测试，§4c 扫描曲线）；标志位见
+`docs/typesafe.md`。
+
 ## 重校准（第 6 阶段，12.4 起存入 v3）
 
 ```sh
@@ -157,29 +182,33 @@ docker run --rm -p 8080:8080 -v /seus/amanda:/data amandac
 （`amandac mcp`：经 stdio 的 ask/decisions/inspect/version，
 `docs/mcp.md`）+ **Docker**（构建期跑测试的多阶段镜像，
 `docs/docker.md`）+ **带优先级的 LLM 池**（`decisions` >
-`chat`，`docs/laya.md`）：纯 C Windows 核心、CMake+CI、经 HTTP
+`chat`，`docs/laya.md`）+ **真实后端**（JEV/TypeSafe 云端 + nimble
+裁决、DeepSeek 重写，`docs/typesafe.md`）：纯 C Windows 核心、CMake+CI、经 HTTP
 的 Laya、SSE+embeddings、`eval`、`calibrate`（+`--apply` v3 与
 `--validacao`）、PDF+ 抽取、稳健的企业级 serve（池、按 `model`
 多包）、发布产物、BM25 检索 + 葡语停用词 + 多引用、重排
 （词干/垃圾过滤/饱和范数/短语）、倒排索引 + 查询缓存。基准
 （`amandac 1.0.39`，v3 包）：CVM 86.64%、IBRI 87.41%、INVEST
 88.27%、Direito 84.00%；延迟 0.3–5ms；探针 3/3；gold 75/80 已审计
-（见 `docs/eval.md`）。
+（已在 `1.0.51` 复验，见 `docs/eval.md`）。
 
 ## 测试
 ```bat
 gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\typesafe_backend.c src\deepseek_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
-scripts\test_pipeline.bat
-scripts\check_gold.bat
+scripts\test_pipeline.bat    :: 12 步（compile、serve、eval、calibrate、MCP、后端；诚实 SKIP）
+scripts\check_gold.bat       :: 80 条自然问题，recall@2（已审计 75/80 基线，无回归）
+scripts\check_typesafe.bat   :: 真实 JEV：本地 nimble + 云端 jev-latest + 每书 1 锚点
+scripts\check_deepseek.bat   :: 无 DEEPSEEK_API_KEY 时 SKIP
+scripts\sweep_typesafe.bat   :: 阈值 × 云端曲线（权衡永不判失败）
 ```
-基准：**267 项检查** + 流水线（12 步，含 MCP smoke 与诚实 SKIP 的真实后端）+ gold（80
-问，recall@2）。CI：Windows + Linux（`ctest` + MCP smoke +
-Docker 构建）；macOS 已暂停（见 `FASES.md`）。
+基准：**267 项检查** + 流水线 + gold + live JEV。CI：Windows +
+Linux（`ctest` + MCP smoke + Docker 构建）；macOS 已暂停（见
+`FASES.md`）。
 
 ## 结构
 - `include/` 公开头文件
 - `src/` 无外部依赖的 C11 实现（Windows 上仅需 `ws2_32`）
-- `docs/` 格式（`formato_amanda.md`）、流水线、API、eval、Laya、使用指南、企业教程、MCP（`mcp.md`）、Docker（`docker.md`）
+- `docs/` 格式（`formato_amanda.md`）、流水线、API、eval、Laya、JEV/TypeSafe（`typesafe.md`、`jev.md`、`guia_jev.md`）、DeepSeek（`deepseek.md`）、使用指南、企业教程、MCP（`mcp.md`）、Docker（`docker.md`）、macOS（`macos.md`）
 - `templates/` 类型化问题措辞（+ `empresas/` 包：合规、金融、法务、客服）
 - `examples/` 示例、`config.yaml`、smoke 夹具与回归 gold 集
 - `tests/` C 语言单元测试

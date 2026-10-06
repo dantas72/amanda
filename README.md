@@ -17,7 +17,9 @@ em artefatos de decisão `.amanda`: cada resposta vem com a fonte e a
 página citada, nível de confiança calibrado e recusa automática fora
 de escopo. Roda 100% local, sem dependência de nuvem, e se integra
 aos seus sistemas por CLI ou API compatível com OpenAI — sozinho ou
-redigindo via LLM (ver `docs/laya.md`). Ideal para compliance,
+redigindo via LLM (ver `docs/laya.md`), com julgamento real opcional
+via JEV/TypeSafe (`jev-latest` na nuvem ou nimble local) ou redação
+via DeepSeek (ver `docs/typesafe.md`). Ideal para compliance,
 jurídico, financeiro e atendimento.
 
 ## Build (Windows)
@@ -100,6 +102,30 @@ Fallback local honesto (campo `"backend"`). Pipeline real:
 `docs/deepseek.md` e `docs/jev.md`; guia prático em
 `docs/guia_jev.md` (testar, analisar, criar exemplos).
 
+## Testes reais com JEV (nuvem + nimble, verificado)
+
+Mesma pergunta, três caminhos — muda só a confiança (o grounding
+local com página/citação é idêntico; o JEV só julga):
+
+| pergunta | caminho | `backend` | confiança | pág. | recusada |
+|---|---|---|---|---|---|
+| entropia (exemplo) | local | `local` | 0.97 | 1 | não |
+| entropia | nimble (Ollama) | `typesafe-http` | 0.9978 | 1 | não |
+| entropia | `jev-latest` (nuvem) | `typesafe-http` | 0.92 | 1 | não |
+| companhia aberta (CVM) | nuvem | `typesafe-http` | 0.09 | 139 | sim* |
+| área de RI (IBRI) | nuvem | `typesafe-http` | 0.70 | 70 | sim* |
+| análise técnica (INV) | nuvem | `typesafe-http` | 0.87 | 81 | não |
+| responsabilidade civil (DIR) | nuvem | `typesafe-http` | 0.46 | 896 (531 em 2ª citação) | sim* |
+
+\* `sim` com a página correta = ação calibrada (confiança abaixo do
+limiar do pacote v3; com `--limiar-recusa` menor, responderia).
+Rank 5/5; a varredura limiar × JEV (4 pins × 5 limiares) mostra rank
+4/4 estável e respostas caindo 3→0 — tradeoff limpo e esperado.
+Pipeline de hoje (`1.0.51`): `check_typesafe` LIVE (nimble + nuvem +
+4/4 pins dos livros). Tabelas completas em `docs/guia_jev.md`
+(§4b teste só-nuvem, §4c curva do sweep); flags em
+`docs/typesafe.md`.
+
 ## Recalibração (Fase 6, gravada em v3 na 12.4)
 
 ```sh
@@ -163,7 +189,9 @@ serve todos os `/data/*.amanda`, ou executa qualquer comando
 Fases 1–13 prontas (`FASES.md`) + **MCP server** (`amandac mcp`:
 ask/decisions/inspect/version via stdio, `docs/mcp.md`) + **Docker**
 (imagem multi-stage com testes no build, `docs/docker.md`) + **pool
-LLM** com prioridade (`decisions` > `chat`, `docs/laya.md`):
+LLM** com prioridade (`decisions` > `chat`, `docs/laya.md`) +
+**backends reais** (julgamento JEV/TypeSafe nuvem + nimble, redação
+DeepSeek, `docs/typesafe.md`):
 núcleo Windows em C puro, CMake+CI,
 Laya via HTTP, SSE+embeddings, `eval`, `calibrate` (+`--apply` v3 e
 `--validacao`), extração PDF+, serve robusto e enterprise (pool,
@@ -172,23 +200,25 @@ stopwords PT + multi-citação, rerank (stemming/junk/norma
 saturante/phrase), índice invertido + cache de query. Referência
 (`amandac 1.0.39`, pacotes v3): CVM 86.64%, IBRI 87.41%, INVEST 88.27%,
 Direito 84.00%; latência 0.3–5ms; probes 3/3; gold 75/80 auditado
-(ver `docs/eval.md`).
+(revalidado em `1.0.51`, ver `docs/eval.md`).
 
 ## Testes
 ```bat
 gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\typesafe_backend.c src\deepseek_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
-scripts\test_pipeline.bat
-scripts\check_gold.bat
+scripts\test_pipeline.bat    :: 12 etapas (compile, serve, eval, calibrate, MCP, backends; SKIP honesto)
+scripts\check_gold.bat       :: 80 perguntas naturais, recall@2 (baseline 75/80 auditada, sem regressão)
+scripts\check_typesafe.bat   :: JEV real: nimble local + nuvem jev-latest + 1 pin por livro
+scripts\check_deepseek.bat   :: SKIP sem DEEPSEEK_API_KEY
+scripts\sweep_typesafe.bat   :: curva limiar × nuvem (nunca falha por tradeoff)
 ```
-Referência: **267 checks** + pipeline (12 etapas, incl. MCP smoke
-e backends reais com SKIP honesto)
-+ gold (80 perguntas, recall@2). CI: Windows + Linux (`ctest` + MCP smoke
-+ Docker build); macOS pausado (ver `FASES.md`).
+Referência: **267 checks** + pipeline + gold + JEV vivo. CI:
+Windows + Linux (`ctest` + MCP smoke + Docker build); macOS
+pausado (ver `FASES.md`).
 
 ## Estrutura
 - `include/` headers públicos
 - `src/` implementação C11 sem dependências externas (só `ws2_32` no Windows)
-- `docs/` especificações de formato (`formato_amanda.md`), pipeline, API, eval, Laya, guia de uso, tutorial empresarial, MCP (`mcp.md`), Docker (`docker.md`)
+- `docs/` formato (`formato_amanda.md`), pipeline, API, eval, Laya, JEV/TypeSafe (`typesafe.md`, `jev.md`, `guia_jev.md`), DeepSeek (`deepseek.md`), guia de uso, tutorial empresarial, MCP (`mcp.md`), Docker (`docker.md`), macOS (`macos.md`)
 - `templates/` enunciados das perguntas tipadas (+ packs `empresas/`: compliance, financeiro, jurídico, atendimento)
 - `examples/` exemplo, `config.yaml`, fixtures de smoke e golds de regressão
 - `tests/` testes unitários em C

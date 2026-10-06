@@ -17,8 +17,10 @@ Turns your operation's documents (`PDF / TXT / CSV / JSON`) into
 source and page, calibrated confidence level, and automatic
 out-of-scope refusal. Runs 100% locally with no cloud dependency,
 and integrates with your systems via CLI or an OpenAI-compatible
-API — standalone or drafting via LLM (see `docs/laya.md`). Ideal
-for compliance, legal, finance, and customer support.
+API — standalone or drafting via LLM (see `docs/laya.md`), with
+optional real judgment via JEV/TypeSafe (`jev-latest` in the cloud
+or local nimble) or drafting via DeepSeek (see `docs/typesafe.md`).
+Ideal for compliance, legal, finance, and customer support.
 
 ## Build (Windows)
 ```bat
@@ -100,6 +102,30 @@ Honest local fallback (the `"backend"` field). Real pipeline:
 `docs/deepseek.md` and `docs/jev.md`; hands-on guide in
 `docs/guia_jev.md` (test, analyze, create examples).
 
+## Real JEV tests (cloud + nimble, verified)
+
+Same question, three paths — only confidence changes (local
+grounding with page/citation is identical; the JEV only judges):
+
+| question | path | `backend` | confidence | page | refused |
+|---|---|---|---|---|---|
+| entropy (example) | local | `local` | 0.97 | 1 | no |
+| entropy | nimble (Ollama) | `typesafe-http` | 0.9978 | 1 | no |
+| entropy | `jev-latest` (cloud) | `typesafe-http` | 0.92 | 1 | no |
+| companhia aberta (CVM) | cloud | `typesafe-http` | 0.09 | 139 | yes* |
+| RI area (IBRI) | cloud | `typesafe-http` | 0.70 | 70 | yes* |
+| technical analysis (INV) | cloud | `typesafe-http` | 0.87 | 81 | no |
+| civil liability (DIR) | cloud | `typesafe-http` | 0.46 | 896 (531 as 2nd citation) | yes* |
+
+\* `yes` with the correct page = calibrated action (confidence
+below the v3 package threshold; a lower `--limiar-recusa` would
+answer). Rank 5/5; the threshold × JEV sweep (4 pins × 5
+thresholds) shows stable 4/4 rank with answers dropping 3→0 — a
+clean, expected tradeoff. Today's pipeline (`1.0.51`):
+`check_typesafe` LIVE (nimble + cloud + 4/4 book pins). Full
+tables in `docs/guia_jev.md` (§4b cloud-only test, §4c sweep
+curve); flags in `docs/typesafe.md`.
+
 ## Recalibration (Phase 6, stored in v3 since 12.4)
 
 ```sh
@@ -165,7 +191,9 @@ Phases 1–13 done (`FASES.md`, in Portuguese) + **MCP server**
 (`amandac mcp`: ask/decisions/inspect/version over stdio,
 `docs/mcp.md`) + **Docker** (multi-stage image with tests in the
 build, `docs/docker.md`) + **LLM pool** with priority (`decisions` >
-`chat`, `docs/laya.md`): pure-C Windows core, CMake+CI, Laya over
+`chat`, `docs/laya.md`) + **real backends** (JEV/TypeSafe cloud +
+nimble judgment, DeepSeek redraft, `docs/typesafe.md`): pure-C
+Windows core, CMake+CI, Laya over
 HTTP, SSE+embeddings, `eval`, `calibrate` (+`--apply` v3 and
 `--validacao`), PDF+ extraction, robust enterprise serve (pool,
 multi-package by `model`), release artifacts, BM25 retrieval +
@@ -173,23 +201,25 @@ PT stopwords + multi-citation, rerank (stemming/junk/saturating
 norm/phrase), inverted index + query cache. Reference (`amandac
 1.0.39`, v3 packages): CVM 86.64%, IBRI 87.41%, INVEST 88.27%,
 Direito 84.00%; latency 0.3–5ms; probes 3/3; gold 75/80 audited
-(see `docs/eval.md`).
+(revalidated on `1.0.51`, see `docs/eval.md`).
 
 ## Tests
 ```bat
 gcc -O2 -Wall -Wextra -std=c11 -Iinclude tests\test_all.c src\amanda.c src\utils.c src\pdf_extractor.c src\chunker.c src\embedder.c src\question_gen.c src\decision_engine.c src\laya_backend.c src\typesafe_backend.c src\deepseek_backend.c src\packager.c src\server.c src\eval.c src\calibra.c src\config.c src\mcp.c -o build\amanda_tests.exe -lws2_32 && build\amanda_tests.exe
-scripts\test_pipeline.bat
-scripts\check_gold.bat
+scripts\test_pipeline.bat    :: 12 stages (compile, serve, eval, calibrate, MCP, backends; honest SKIP)
+scripts\check_gold.bat       :: 80 natural questions, recall@2 (audited 75/80 baseline, no regression)
+scripts\check_typesafe.bat   :: real JEV: local nimble + jev-latest cloud + 1 pin per book
+scripts\check_deepseek.bat   :: SKIP without DEEPSEEK_API_KEY
+scripts\sweep_typesafe.bat   :: threshold x cloud curve (never fails on tradeoff)
 ```
-Reference: **267 checks** + pipeline (12 steps, incl. MCP smoke
-and real backends with honest SKIP)
-+ gold (80 questions, recall@2). CI: Windows + Linux (`ctest` + MCP
-smoke + Docker build); macOS paused (see `FASES.md`).
+Reference: **267 checks** + pipeline + gold + live JEV. CI:
+Windows + Linux (`ctest` + MCP smoke + Docker build); macOS
+paused (see `FASES.md`).
 
 ## Structure
 - `include/` public headers
 - `src/` C11 implementation with no external dependencies (only `ws2_32` on Windows)
-- `docs/` format (`formato_amanda.md`), pipeline, API, eval, Laya, usage guide, business tutorial, MCP (`mcp.md`), Docker (`docker.md`)
+- `docs/` format (`formato_amanda.md`), pipeline, API, eval, Laya, JEV/TypeSafe (`typesafe.md`, `jev.md`, `guia_jev.md`), DeepSeek (`deepseek.md`), usage guide, business tutorial, MCP (`mcp.md`), Docker (`docker.md`), macOS (`macos.md`)
 - `templates/` typed-question wordings (+ `empresas/` packs: compliance, finance, legal, support)
 - `examples/` sample, `config.yaml`, smoke fixtures and regression golds
 - `tests/` unit tests in C
