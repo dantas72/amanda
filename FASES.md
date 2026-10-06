@@ -164,8 +164,9 @@
   etapa Unit tests ou teste local num Mac. M2 só em larger pagos,
   M3/M4 sem labels — essas máquinas via self-hosted (roteiro futuro).
 
-# Futuro (pós-13: Docker + MCP entregues 2026-10-05, `amandac 1.0.37`,
-testes 198/198 — ver "Fase MCP/Docker" abaixo; restante planejado)
+# Futuro (pós-13: Docker + MCP entregues 2026-10-05, Pool LLM
+2026-10-05, Backends reais 2026-10-06 — `amandac 1.0.50`, testes
+267/267; ver seções abaixo; restante planejado)
 - [x] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
 - [x] MCP server: expor `ask`/`decisions` como ferramentas MCP p/ OpenCode e agentes.
 - [x] Pool LLM: fila própria com prioridade p/ inferências `laya-http` (ver "Fase Pool LLM" abaixo).
