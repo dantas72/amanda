@@ -165,7 +165,7 @@
   M3/M4 sem labels — essas máquinas via self-hosted (roteiro futuro).
 
 # Futuro (pós-13: Docker + MCP entregues 2026-10-05, Pool LLM
-2026-10-05, Backends reais 2026-10-06 — `amandac 1.0.50`, testes
+2026-10-05, Backends reais 2026-10-06 — `amandac 1.0.51`, testes
 267/267; ver seções abaixo; restante planejado)
 - [x] Docker: imagem com `amandac` + `serve` como entrypoint (multi-pacote por volume).
 - [x] MCP server: expor `ask`/`decisions` como ferramentas MCP p/ OpenCode e agentes.

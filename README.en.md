@@ -205,4 +205,4 @@ smoke + Docker build); macOS paused (see `FASES.md`).
 ## Version
 `version.bin` is the source of truth, incremented on every `build.bat`.
 Last local build:
-Build: `1.0.50`
+Build: `1.0.51`

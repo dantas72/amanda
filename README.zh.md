@@ -195,4 +195,4 @@ Docker 构建）；macOS 已暂停（见 `FASES.md`）。
 ## 版本
 `version.bin` 是唯一的版本来源，每次 `build.bat` 递增。
 最近一次本地构建：
-Build: `1.0.50`
+Build: `1.0.51`
