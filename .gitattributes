@@ -1,0 +1,8 @@
+# Normalizacao de finais de linha do Amanda.
+# Nao muda conteudo, so EOL: blobs sempre LF no repo; no Windows o
+# checkout gera CRLF (mesmo comportamento do core.autocrlf=true, mas
+# explicito — sem os avisos de conversao implicita).
+# Convencoes do projeto: .bat em CRLF, .sh em LF (ver Jimi.md).
+* text=auto
+*.bat text eol=crlf
+*.sh text eol=lf
