@@ -216,7 +216,8 @@ scripts\check_deepseek.bat   :: SKIP без DEEPSEEK_API_KEY
 scripts\sweep_typesafe.bat   :: кривая порог × облако (никогда не падает из-за компромисса)
 ```
 Ориентир: **267 проверок** + конвейер + gold + живой JEV. CI:
-Windows + Linux (`ctest` + MCP smoke + сборка Docker); macOS на
+Windows + Linux (`ctest` + MCP smoke); Docker проверяется
+локально (`scripts/check_docker.bat`, SKIP без docker); macOS на
 паузе (см. `FASES.md`).
 
 ## Структура

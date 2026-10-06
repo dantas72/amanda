@@ -202,8 +202,9 @@ scripts\check_deepseek.bat   :: 无 DEEPSEEK_API_KEY 时 SKIP
 scripts\sweep_typesafe.bat   :: 阈值 × 云端曲线（权衡永不判失败）
 ```
 基准：**267 项检查** + 流水线 + gold + live JEV。CI：Windows +
-Linux（`ctest` + MCP smoke + Docker 构建）；macOS 已暂停（见
-`FASES.md`）。
+Linux（`ctest` + MCP smoke）；Docker 仅本地验证
+（`scripts/check_docker.bat`，无 docker 时 SKIP）；macOS 已暂停
+（见 `FASES.md`）。
 
 ## 结构
 - `include/` 公开头文件

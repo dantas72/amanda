@@ -195,7 +195,9 @@
   - Testes 198/198 (+17 `test_mcp`: protocolo, ferramentas, erros,
     ids, multi); `scripts/check_mcp.bat/.sh` + `check_docker.bat/.sh`
     (SKIP sem docker); pipeline 10 etapas; CI com MCP smoke (win+
-    linux) e `docker build` no ubuntu.
+    linux) e `docker build` no ubuntu (este último removido do CI
+    em 2026-10-06 — sem docker p/ validar; segue local via
+    `check_docker`).
   - Bugs achados no caminho: `-Wcomment` por `/*` em comentário de
     `mcp.h` (zero warnings novos, como exige o projeto);
     `strncmp(method, "notifications/", 16)` com tamanho errado

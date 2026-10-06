@@ -213,8 +213,9 @@ scripts\check_deepseek.bat   :: SKIP without DEEPSEEK_API_KEY
 scripts\sweep_typesafe.bat   :: threshold x cloud curve (never fails on tradeoff)
 ```
 Reference: **267 checks** + pipeline + gold + live JEV. CI:
-Windows + Linux (`ctest` + MCP smoke + Docker build); macOS
-paused (see `FASES.md`).
+Windows + Linux (`ctest` + MCP smoke); Docker validated locally
+(`scripts/check_docker.bat`, SKIP without docker); macOS paused
+(see `FASES.md`).
 
 ## Structure
 - `include/` public headers

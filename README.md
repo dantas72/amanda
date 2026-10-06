@@ -212,8 +212,9 @@ scripts\check_deepseek.bat   :: SKIP sem DEEPSEEK_API_KEY
 scripts\sweep_typesafe.bat   :: curva limiar × nuvem (nunca falha por tradeoff)
 ```
 Referência: **267 checks** + pipeline + gold + JEV vivo. CI:
-Windows + Linux (`ctest` + MCP smoke + Docker build); macOS
-pausado (ver `FASES.md`).
+Windows + Linux (`ctest` + MCP smoke); Docker validado localmente
+(`scripts/check_docker.bat`, SKIP sem docker); macOS pausado (ver
+`FASES.md`).
 
 ## Estrutura
 - `include/` headers públicos
